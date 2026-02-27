@@ -9,7 +9,7 @@ This script:
 - Sets up **PipeWire + WirePlumber** audio (no `pipewire-pulse` package required).
 - Installs Bluetooth (BlueZ + Blueman).
 - Installs GPU drivers (NVIDIA proprietary via nonfree, AMD/Intel via Mesa/Vulkan).
-- Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`, `sway`, `awesome`, `herbstluftwm`.
+- Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`, `Hyprland`, `sway`, `swayfx`, `awesome`, `herbstluftwm`, `XFCE`, `GNOME`, `MATE`.
 - Also supports **Hyprland (experimental/beta)** via a third-party repo workaround (see below).
 - Generates basic, usable configs for the chosen environment.
 - Lets you choose a browser (Firefox, Chromium, Brave, Librewolf).
@@ -76,6 +76,7 @@ The script logs to:
    - `elogind` (default): works well with KDE/SDDM and most setups.
    - `seatd`: lighter, good for Wayland compositors.
    - If you choose `sddm`, the script automatically switches to `elogind` to avoid common VT/xauth failures.
+   - If you choose `Hyprland`, the script also forces `elogind` for better stability on Void.
 
 3. **Desktop / WM**
    - `i3` (default, X11)
@@ -85,8 +86,12 @@ The script logs to:
    - `niri` (Wayland; may require repo support)
    - `Hyprland` (Wayland; **EXPERIMENTAL/BETA** workaround via `Encoded14/void-extra`)
    - `sway` (Wayland)
+   - `swayfx` (Wayland)
    - `awesome` (X11)
    - `herbstluftwm` (X11)
+   - `XFCE` (X11)
+   - `GNOME`
+   - `MATE` (X11)
 
 4. **Login manager**
    - `sddm` (default)
@@ -135,10 +140,11 @@ All prompts have a default value; pressing **Enter** keeps the default.
 - **Desktops/WMs** (depending on choice):
   - `i3` + basic `i3status`, `dmenu`, `picom`, `feh`, `alacritty`.
   - `plasma-desktop` or `kde5` meta‑package, `konsole`, `dolphin` (when available).
-  - `dwm` + `st` + basics.
+  - `dwm` + `sxhkd` starter keybinds + terminal fallback launcher (`st`/`alacritty`/`xterm`).
   - `awesome` + basics.
   - `herbstluftwm` + basics.
-  - `river`, `niri`, or `sway` with basic tooling (`foot`, `wofi`, `swaybg`, `grim`, `slurp`, `wl-clipboard`).
+  - `river`, `niri`, `sway`, or `swayfx` with basic tooling (`foot`, `wofi`, `swaybg`, `grim`, `slurp`, `wl-clipboard`).
+  - `XFCE`, `GNOME`, and `MATE` desktop environments.
   - `Hyprland` (experimental) with the same Wayland basics.
 - **Panels/bars**:
   - X11 installs include `polybar`.
@@ -151,7 +157,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - Repo sample wallpaper: `wallpaper/sample.jpg`
   - Installed to: `/usr/share/backgrounds/void-auto-setup/sample.jpg`
   - Configs are generated to use that wallpaper by default (X11 via `feh`, Wayland via `swaybg`).
-  - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
+  - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm/XFCE/GNOME/MATE), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
   - Optional wallpaper manager choices include `nitrogen`, `azote`, and `waypaper`.
   - If `waypaper` is selected, the script installs `pipx`, required Python deps (GObject/imageio/imageio-ffmpeg/screeninfo/platformdirs variants when available), one selected backend, and adds `waypaper --restore` autostart for the target user.
 

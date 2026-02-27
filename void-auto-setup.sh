@@ -7,7 +7,7 @@ set -euo pipefail
 # - Installs dbus + (elogind OR seatd)
 # - Installs PipeWire + WirePlumber + Bluetooth (BlueZ + Blueman + libspa-bluetooth)
 # - Installs GPU drivers (NVIDIA proprietary supported via Void nonfree; AMD uses Mesa/Vulkan with optional AMDVLK)
-# - Prompts for Desktop/WM: i3 (default), KDE Plasma, river, dwm, niri, sway, awesome, herbstluftwm
+# - Prompts for Desktop/WM: i3 (default), KDE Plasma, river, dwm, niri, hyprland, sway/swayfx, awesome, herbstluftwm, XFCE, GNOME, MATE
 # - Generates usable starter configs for each
 # - Prompts for browser (Firefox default)
 # - Optional Flatpak + Flathub
@@ -130,7 +130,7 @@ show_splashscreen() {
    \ V /| |_| | || |_| |  | || |\  |___) || |/ ___ \| |___| |___| |___|  _ <
     \_/  \___/___|____/  |___|_| \_|____/ |_/_/   \_\_____|_____|_____|_| \_\
 EOF
-  printf "${underline}Enter the void...${reset}\n\n"
+  printf "${void_green}${underline}Enter the void...${reset}\n\n"
 }
 
 require_root() {
@@ -167,9 +167,27 @@ xbps_sync() {
   xbps-install -Sy >/dev/null
 }
 
+xbps_is_installed() { # pkg
+  xbps-query "$1" >/dev/null 2>&1
+}
+
 xbps_install() {
-  info "Installing: $*"
-  xbps-install -y "$@"
+  local to_install=()
+  local p
+  for p in "$@"; do
+    if xbps_is_installed "$p"; then
+      info "Already installed (skipping): ${p}"
+    else
+      to_install+=("$p")
+    fi
+  done
+
+  if ((${#to_install[@]})); then
+    info "Installing: ${to_install[*]}"
+    xbps-install -y "${to_install[@]}"
+  else
+    info "Nothing to install in this step."
+  fi
 }
 
 xbps_pkg_available() { xbps-query -R "$1" >/dev/null 2>&1; }
@@ -282,6 +300,17 @@ enable_service() { # /etc/sv/name -> /var/service/name
   info "Enabled service: ${name}"
 }
 
+disable_service() { # /var/service/name
+  local name="$1"
+  local dst="/var/service/${name}"
+  if [[ -L "${dst}" ]]; then
+    rm -f "${dst}"
+    info "Disabled service: ${name}"
+  elif [[ -d "${dst}" ]]; then
+    warn "Service path ${dst} is a directory (expected symlink); leaving it untouched."
+  fi
+}
+
 ensure_user() {
   local u="$1"
   id "$u" >/dev/null 2>&1 || die "User does not exist: ${u}"
@@ -335,7 +364,7 @@ choose_session_stack() {
 }
 
 choose_de() {
-  local prompt=$'\nDesktop/WM selection:\n  1) i3 (default, X11)\n  2) KDE Plasma (X11/Wayland, heavier)\n  3) river (Wayland)\n  4) dwm (X11, minimal)\n  5) niri (Wayland)\n  6) Hyprland (Wayland, EXPERIMENTAL/BETA via void-extra)\n  7) sway (Wayland)\n  8) awesome (X11)\n  9) herbstluftwm (X11)\nChoose'
+  local prompt=$'\nDesktop/WM selection:\n  1) i3 (default, X11)\n  2) KDE Plasma (X11/Wayland, heavier)\n  3) river (Wayland)\n  4) dwm (X11, minimal)\n  5) niri (Wayland)\n  6) Hyprland (Wayland, EXPERIMENTAL/BETA via void-extra)\n  7) sway (Wayland)\n  8) swayfx (Wayland)\n  9) awesome (X11)\n  10) herbstluftwm (X11)\n  11) XFCE (X11)\n  12) GNOME\n  13) MATE (X11)\nChoose'
   local c
   c="$(read_default "${prompt}" "1")"
   case "$c" in
@@ -345,8 +374,12 @@ choose_de() {
     5) echo "niri" ;;
     6) echo "hyprland" ;;
     7) echo "sway" ;;
-    8) echo "awesome" ;;
-    9) echo "herbstluftwm" ;;
+    8) echo "swayfx" ;;
+    9) echo "awesome" ;;
+    10) echo "herbstluftwm" ;;
+    11) echo "xfce" ;;
+    12) echo "gnome" ;;
+    13) echo "mate" ;;
     *) echo "i3" ;;
   esac
 }
@@ -367,6 +400,15 @@ normalize_stack_for_login_manager() { # seatstack, lm -> echo seatstack
   local seatstack="$1" lm="$2"
   if [[ "$lm" == "sddm" && "$seatstack" != "elogind" ]]; then
     warn "SDDM with seatd commonly fails on Void (VT/xauth). Switching seat stack to elogind."
+    seatstack="elogind"
+  fi
+  echo "$seatstack"
+}
+
+normalize_stack_for_de() { # seatstack, de -> echo seatstack
+  local seatstack="$1" de="$2"
+  if [[ "$de" == "hyprland" && "$seatstack" != "elogind" ]]; then
+    warn "Hyprland is more reliable with elogind on Void. Switching seat stack to elogind."
     seatstack="elogind"
   fi
   echo "$seatstack"
@@ -443,9 +485,11 @@ install_core_services() {
   if [[ "$seatstack" == "elogind" ]]; then
     xbps_install elogind
     enable_service elogind
+    disable_service seatd
   else
     xbps_install seatd
     enable_service seatd
+    disable_service elogind
   fi
 }
 
@@ -535,7 +579,7 @@ install_sample_wallpaper() {
 
 session_kind_for_de() { # de -> x11|wayland
   case "$1" in
-    river|niri|hyprland|sway) echo "wayland" ;;
+    river|niri|hyprland|sway|swayfx) echo "wayland" ;;
     *) echo "x11" ;;
   esac
 }
@@ -989,7 +1033,8 @@ install_de() {
     dwm)
       info "Installing dwm (X11)..."
       install_x11_base
-      xbps_install dwm st dmenu feh picom
+      xbps_install dwm dmenu feh picom sxhkd
+      xbps_install_if_available st alacritty xterm
       ;;
     awesome)
       info "Installing awesome WM (X11)..."
@@ -1026,6 +1071,39 @@ install_de() {
       info "Installing sway (Wayland)..."
       install_wayland_base
       xbps_install sway foot swaybg grim slurp wl-clipboard
+      ;;
+    swayfx)
+      info "Installing swayfx (Wayland)..."
+      install_wayland_base
+      if ! xbps_install_first_available "swayfx/sway" swayfx sway; then
+        warn "Neither swayfx nor sway found in repos."
+      fi
+      xbps_install_if_available foot swaybg grim slurp wl-clipboard
+      ;;
+    xfce)
+      info "Installing XFCE (X11)..."
+      install_x11_base
+      if ! xbps_install_first_available "XFCE desktop" xfce4 xfce; then
+        warn "XFCE desktop meta package not found."
+      fi
+      xbps_install_if_available xfce4-terminal thunar
+      ;;
+    gnome)
+      info "Installing GNOME..."
+      install_x11_base
+      install_wayland_base
+      if ! xbps_install_first_available "GNOME desktop" gnome gnome-core gnome-session gnome-shell; then
+        warn "GNOME desktop meta package not found."
+      fi
+      xbps_install_if_available gnome-terminal nautilus
+      ;;
+    mate)
+      info "Installing MATE (X11)..."
+      install_x11_base
+      if ! xbps_install_first_available "MATE desktop" mate mate-desktop; then
+        warn "MATE desktop meta package not found."
+      fi
+      xbps_install_if_available mate-terminal caja
       ;;
   esac
 }
@@ -1215,16 +1293,33 @@ EOF
 }
 
 setup_dwm_config() {
-  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
-  info "dwm uses built-in defaults. Providing a usable ~/.xinitrc..."
+  local u="$1" launcher_cmd="${2:-dmenu_run}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
+  local terminal_launcher=""
+  terminal_launcher="$(write_terminal_launcher_wrapper)"
+
+  info "Generating dwm starter config for ${u}..."
   setup_xinitrc_for_x11 "$u" "dwm" "${wallpaper_path}"
-  # Basic wallpaper + compositor via .xprofile
+  safe_mkdir "/home/${u}/.config/sxhkd"
+
+  cat > "/home/${u}/.config/sxhkd/sxhkdrc" <<EOF
+# generated dwm helper keybinds
+super + Return
+    ${terminal_launcher}
+
+super + shift + q
+    pkill -x dwm
+EOF
+  if [[ -n "${launcher_cmd}" ]]; then
+    printf "\nsuper + d\n    %s\n" "${launcher_cmd}" >>"/home/${u}/.config/sxhkd/sxhkdrc"
+  fi
+
   cat > "/home/${u}/.xprofile" <<'EOF'
 # generated
+(sxhkd &) >/dev/null 2>&1 || true
 (picom &) >/dev/null 2>&1 || true
 EOF
   printf "(feh --bg-scale %q &) >/dev/null 2>&1 || true\n" "${wallpaper_path}" >>"/home/${u}/.xprofile"
-  chown "${u}:${u}" "/home/${u}/.xprofile"
+  chown -R "${u}:${u}" "/home/${u}/.config/sxhkd" "/home/${u}/.xprofile"
 }
 
 setup_awesome_config() {
@@ -1316,6 +1411,24 @@ setup_plasma_config() {
   # Nothing heavy required; Plasma manages itself.
   # Provide a fallback startx entry too.
   setup_xinitrc_for_x11 "$u" "startplasma-x11" "${WALLPAPER_SYSTEM_PATH}"
+}
+
+setup_xfce_config() {
+  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
+  info "XFCE: generating startx fallback."
+  setup_xinitrc_for_x11 "$u" "startxfce4" "${wallpaper_path}"
+}
+
+setup_gnome_config() {
+  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
+  info "GNOME: generating startx fallback."
+  setup_xinitrc_for_x11 "$u" "gnome-session" "${wallpaper_path}"
+}
+
+setup_mate_config() {
+  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
+  info "MATE: generating startx fallback."
+  setup_xinitrc_for_x11 "$u" "mate-session" "${wallpaper_path}"
 }
 
 setup_river_config() {
@@ -1471,6 +1584,18 @@ bindsym $mod+Shift+j move down
 bindsym $mod+Shift+k move up
 bindsym $mod+Shift+l move right
 
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+bindsym $mod+Shift+r reload
+
 exec pipewire
 exec wireplumber
 exec Waybar
@@ -1525,6 +1650,64 @@ EOF
   echo "${path}"
 }
 
+write_terminal_launcher_wrapper() {
+  local path="/usr/local/bin/void-auto-setup-terminal"
+  safe_mkdir "$(dirname "${path}")"
+  cat > "${path}" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+for candidate in alacritty foot st xterm xfce4-terminal mate-terminal gnome-terminal konsole; do
+  if command -v "${candidate}" >/dev/null 2>&1; then
+    exec "${candidate}"
+  fi
+done
+echo "No terminal emulator found. Install one (for example alacritty, st, or xterm)." >&2
+exit 127
+EOF
+  chmod 0755 "${path}"
+  echo "${path}"
+}
+
+write_swayfx_launcher_wrapper() {
+  local path="/usr/local/bin/void-auto-setup-start-swayfx"
+  safe_mkdir "$(dirname "${path}")"
+  cat > "${path}" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+
+find_sway_bin() {
+  for candidate in /usr/bin/swayfx /usr/bin/sway /bin/swayfx /bin/sway; do
+    if [ -x "${candidate}" ]; then
+      printf "%s\n" "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+SWAY_BIN="$(find_sway_bin || true)"
+if [ -z "${SWAY_BIN}" ]; then
+  echo "Neither swayfx nor sway binary found." >&2
+  exit 127
+fi
+
+if [ -z "${XDG_SESSION_TYPE:-}" ]; then
+  export XDG_SESSION_TYPE=wayland
+fi
+if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+  export XDG_CURRENT_DESKTOP=swayfx
+fi
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "${SWAY_BIN}"
+fi
+
+exec "${SWAY_BIN}"
+EOF
+  chmod 0755 "${path}"
+  echo "${path}"
+}
+
 write_hyprland_launcher_wrapper() {
   local path="/usr/local/bin/void-auto-setup-start-hyprland"
   safe_mkdir "$(dirname "${path}")"
@@ -1554,8 +1737,17 @@ fi
 if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
   export XDG_CURRENT_DESKTOP=Hyprland
 fi
+if [ -z "${XDG_SESSION_DESKTOP:-}" ]; then
+  export XDG_SESSION_DESKTOP=Hyprland
+fi
+if [ -z "${DESKTOP_SESSION:-}" ]; then
+  export DESKTOP_SESSION=Hyprland
+fi
 if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
   export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${LIBSEAT_BACKEND:-}" ] && command -v loginctl >/dev/null 2>&1; then
+  export LIBSEAT_BACKEND=logind
 fi
 
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
@@ -1595,10 +1787,28 @@ configure_session_files() {
       # Wayland session typically provided by plasma; don't override.
       ;;
     dwm)
-      setup_dwm_config "$u" "${wallpaper_path}"
+      setup_dwm_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
       local dwm_exec="dwm"
       dwm_exec="$(write_x11_wallpaper_wrapper "dwm" "dwm" "${wallpaper_path}")"
       setup_x11_session_desktop_file "dwm" "${dwm_exec}"
+      ;;
+    xfce)
+      setup_xfce_config "$u" "${wallpaper_path}"
+      local xfce_exec="startxfce4"
+      xfce_exec="$(write_x11_wallpaper_wrapper "xfce" "startxfce4" "${wallpaper_path}")"
+      setup_x11_session_desktop_file "XFCE" "${xfce_exec}"
+      ;;
+    gnome)
+      setup_gnome_config "$u" "${wallpaper_path}"
+      local gnome_exec="gnome-session"
+      gnome_exec="$(write_x11_wallpaper_wrapper "gnome" "gnome-session" "${wallpaper_path}")"
+      setup_x11_session_desktop_file "GNOME" "${gnome_exec}"
+      ;;
+    mate)
+      setup_mate_config "$u" "${wallpaper_path}"
+      local mate_exec="mate-session"
+      mate_exec="$(write_x11_wallpaper_wrapper "mate" "mate-session" "${wallpaper_path}")"
+      setup_x11_session_desktop_file "MATE" "${mate_exec}"
       ;;
     awesome)
       setup_awesome_config "$u" "${wallpaper_path}"
@@ -1631,6 +1841,12 @@ configure_session_files() {
       setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
       setup_wayland_session_desktop_file "sway" "sway"
       ;;
+    swayfx)
+      setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
+      local swayfx_exec=""
+      swayfx_exec="$(write_swayfx_launcher_wrapper)"
+      setup_wayland_session_desktop_file "swayfx" "${swayfx_exec}"
+      ;;
   esac
 
   # For greetd, user may need a configured command. We do a simple default.
@@ -1638,11 +1854,12 @@ configure_session_files() {
     safe_mkdir /etc/greetd
     local cmd=""
     case "$de" in
-      i3|dwm|plasma|awesome|herbstluftwm) cmd="startx" ;;
+      i3|dwm|plasma|awesome|herbstluftwm|xfce|gnome|mate) cmd="startx" ;;
       river) cmd="river" ;;
       niri) cmd="niri" ;;
       hyprland) cmd="start-hyprland" ;;
       sway) cmd="sway" ;;
+      swayfx) cmd="/usr/local/bin/void-auto-setup-start-swayfx" ;;
     esac
     cat > /etc/greetd/config.toml <<EOF
 [terminal]
@@ -1680,7 +1897,7 @@ Notes:
 - PipeWire/WirePlumber are started via user autostart entries (no systemd user units on Void).
 - If you chose "none" for login manager, use:
     startx
-  from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm).
+  from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm/xfce/gnome/mate).
 - For Wayland sessions, use SDDM/LightDM/greetd, or run compositor from tty.
 
 Log:
@@ -1719,6 +1936,7 @@ main() {
   de="$(choose_de)"
   lm="$(choose_login_manager)"
   seatstack="$(normalize_stack_for_login_manager "${seatstack}" "${lm}")"
+  seatstack="$(normalize_stack_for_de "${seatstack}" "${de}")"
   browser="$(choose_browser)"
   gpu="$(choose_gpu)"
 
