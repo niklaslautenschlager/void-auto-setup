@@ -115,7 +115,8 @@ The script logs to:
 
 8. **UX choices**
    - App launcher (X11: rofi/dmenu; Wayland: wofi/fuzzel).
-   - Optional wallpaper GUI manager (X11: nitrogen; Wayland: azote), depending on what you picked.
+   - Optional wallpaper GUI manager (X11: nitrogen/waypaper; Wayland: azote/waypaper), depending on what you picked.
+   - If `waypaper` is selected, the script also asks for a backend (for example `swaybg`, `awww`/`swww`, `feh`, `xwallpaper`, `wallutils`, `hyprpaper`, `mpvpaper`).
    - File manager (Dolphin, Nemo, Thunar, PCManFM, or none).
 
 All prompts have a default value; pressing **Enter** keeps the default.
@@ -151,6 +152,8 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - Installed to: `/usr/share/backgrounds/void-auto-setup/sample.jpg`
   - Configs are generated to use that wallpaper by default (X11 via `feh`, Wayland via `swaybg`).
   - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
+  - Optional wallpaper manager choices include `nitrogen`, `azote`, and `waypaper`.
+  - If `waypaper` is selected, the script installs `pipx`, required Python deps (GObject/imageio/imageio-ffmpeg/screeninfo/platformdirs variants when available), one selected backend, and adds `waypaper --restore` autostart for the target user.
 
 Font installs are **repo-safe**: the script checks whether each font package exists in XBPS before attempting to install it, so missing font packages won't abort the run.
 

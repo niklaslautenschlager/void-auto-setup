@@ -16,7 +16,7 @@ set -euo pipefail
 #
 # Run as root (sudo). Reboot only at the end (optional).
 
-SCRIPT_VERSION="2026-02-26"
+SCRIPT_VERSION="2026-02-27"
 LOG_FILE="/var/log/void-auto-setup.log"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -116,6 +116,24 @@ run_step() { # label, cmd...
   fi
 }
 
+show_splashscreen() {
+  local cyan bold_magenta reset underline
+  cyan="\033[1;36m"
+  bold_magenta="\033[1;35m"
+  reset="\033[0m"
+  underline="\033[4m"
+
+  printf "\n${cyan}"
+  cat <<'EOF'
+ __     ______ ___ ____    ___ _   _ ____ _____  _    _     _     _____ ____
+ \ \   / / _ \_ _|  _ \  |_ _| \ | / ___|_   _|/ \  | |   | |   | ____|  _ \
+  \ \ / / | | | || | | |  | ||  \| \___ \ | | / _ \ | |   | |   |  _| | |_) |
+   \ V /| |_| | || |_| |  | || |\  |___) || |/ ___ \| |___| |___| |___|  _ <
+    \_/  \___/___|____/  |___|_| \_|____/ |_/_/   \_\_____|_____|_____|_| \_\
+EOF
+  printf "${bold_magenta}${underline}Enter the void...${reset}\n\n"
+}
+
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     die "Please run as root (e.g. sudo bash $0)."
@@ -171,6 +189,20 @@ xbps_install_if_available() { # pkgs...
   if ((${#to_install[@]})); then
     xbps_install "${to_install[@]}"
   fi
+}
+
+xbps_install_first_available() { # label, pkg1, pkg2...
+  local label="$1"
+  shift
+  local p
+  for p in "$@"; do
+    if xbps_pkg_available "$p"; then
+      xbps_install "$p"
+      return 0
+    fi
+  done
+  warn "No package found for ${label}. Tried: $*"
+  return 1
 }
 
 enable_void_extra_repo() {
@@ -544,33 +576,152 @@ install_launcher() { # launcher id
 choose_wallpaper_manager() { # session_kind -> manager id
   local kind="$1"
   if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nWallpaper manager (Wayland GUI):\n  1) azote (recommended)\n  2) none\nChoose'
+    local prompt=$'\nWallpaper manager (Wayland GUI):\n  1) azote (recommended)\n  2) waypaper (pipx)\n  3) none\nChoose'
     local c
     c="$(read_default "${prompt}" "1")"
     case "$c" in
-      2) echo "none" ;;
+      2) echo "waypaper" ;;
+      3) echo "none" ;;
       *) echo "azote" ;;
     esac
   else
-    local prompt=$'\nWallpaper manager (X11 GUI):\n  1) nitrogen (recommended)\n  2) none\nChoose'
+    local prompt=$'\nWallpaper manager (X11 GUI):\n  1) nitrogen (recommended)\n  2) waypaper (pipx)\n  3) none\nChoose'
     local c
     c="$(read_default "${prompt}" "1")"
     case "$c" in
-      2) echo "none" ;;
+      2) echo "waypaper" ;;
+      3) echo "none" ;;
       *) echo "nitrogen" ;;
     esac
   fi
 }
 
-install_wallpaper_manager() { # manager id
-  case "$1" in
+choose_waypaper_backend() { # session_kind -> backend id
+  local kind="$1"
+  if [[ "$kind" == "wayland" ]]; then
+    local prompt=$'\nWaypaper backend (Wayland):\n  1) swaybg (stable default)\n  2) awww (or swww package fallback)\n  3) hyprpaper\n  4) mpvpaper\n  5) wallutils\nChoose'
+    local c
+    c="$(read_default "${prompt}" "1")"
+    case "$c" in
+      2) echo "awww" ;;
+      3) echo "hyprpaper" ;;
+      4) echo "mpvpaper" ;;
+      5) echo "wallutils" ;;
+      *) echo "swaybg" ;;
+    esac
+  else
+    local prompt=$'\nWaypaper backend (X11):\n  1) feh (stable default)\n  2) xwallpaper\n  3) wallutils\n  4) mpvpaper\nChoose'
+    local c
+    c="$(read_default "${prompt}" "1")"
+    case "$c" in
+      2) echo "xwallpaper" ;;
+      3) echo "wallutils" ;;
+      4) echo "mpvpaper" ;;
+      *) echo "feh" ;;
+    esac
+  fi
+}
+
+install_waypaper_backend() { # backend id, session_kind
+  local backend="$1" kind="$2"
+  case "$backend" in
+    awww)
+      if ! xbps_install_first_available "Waypaper backend awww/swww" awww swww; then
+        if [[ "$kind" == "wayland" ]]; then
+          warn "Falling back to swaybg backend for Waypaper."
+          xbps_install_if_available swaybg
+        else
+          warn "Falling back to feh backend for Waypaper."
+          xbps_install_if_available feh
+        fi
+      fi
+      ;;
+    swaybg|xwallpaper|feh|wallutils|hyprpaper|mpvpaper)
+      xbps_install_if_available "${backend}"
+      ;;
+    *)
+      warn "Unknown Waypaper backend: ${backend}. Installing a safe default."
+      if [[ "$kind" == "wayland" ]]; then
+        xbps_install_if_available swaybg
+      else
+        xbps_install_if_available feh
+      fi
+      ;;
+  esac
+}
+
+install_pipx_for_waypaper() {
+  if have_cmd pipx; then
+    info "pipx already installed."
+    return 0
+  fi
+
+  info "Installing pipx for Waypaper..."
+  if xbps_pkg_available pipx; then
+    xbps_install pipx
+  elif xbps_pkg_available python3-pipx; then
+    xbps_install python3-pipx
+  else
+    warn "No pipx package found in XBPS. Falling back to python3 -m pip install pipx."
+    xbps_install python3 python3-pip
+    python3 -m pip install --upgrade pipx
+    if [[ -x /root/.local/bin/pipx ]] && [[ ! -x /usr/local/bin/pipx ]]; then
+      ln -s /root/.local/bin/pipx /usr/local/bin/pipx || true
+    fi
+  fi
+
+  have_cmd pipx || die "pipx installation failed; cannot install Waypaper."
+}
+
+install_waypaper_with_pipx() {
+  if pipx install --help 2>/dev/null | grep -q -- "--global"; then
+    if pipx list --global 2>/dev/null | grep -q "package waypaper"; then
+      info "Waypaper already installed via pipx (global). Upgrading..."
+      pipx upgrade --global waypaper || true
+    else
+      pipx install --global waypaper
+    fi
+  else
+    local -a pipx_env=(PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin PIPX_MAN_DIR=/usr/local/share/man)
+    if env "${pipx_env[@]}" pipx list 2>/dev/null | grep -q "package waypaper"; then
+      info "Waypaper already installed via pipx. Upgrading..."
+      env "${pipx_env[@]}" pipx upgrade waypaper || true
+    else
+      env "${pipx_env[@]}" pipx install waypaper
+    fi
+  fi
+}
+
+install_waypaper_manager() { # session_kind, backend
+  local kind="$1" backend="$2"
+  info "Installing Waypaper and dependencies..."
+
+  install_waypaper_backend "${backend}" "${kind}"
+
+  xbps_install_first_available "Python GObject bindings" python3-gobject python3-gi python-gobject || true
+  xbps_install_first_available "python-imageio" python3-imageio python-imageio || true
+  xbps_install_first_available "python-imageio-ffmpeg" python3-imageio-ffmpeg python-imageio-ffmpeg python3-imageio_ffmpeg python-imageio_ffmpeg || true
+  xbps_install_first_available "python-screeninfo" python3-screeninfo python-screeninfo || true
+  xbps_install_first_available "python-platformdirs" python3-platformdirs python-platformdirs || true
+  xbps_install_if_available python3 python3-pip
+
+  install_pipx_for_waypaper
+  install_waypaper_with_pipx
+}
+
+install_wallpaper_manager() { # manager id, session_kind, waypaper_backend
+  local manager="$1" kind="${2:-}" waypaper_backend="${3:-}"
+  case "${manager}" in
     nitrogen|azote)
-      xbps_install_if_available "$1"
+      xbps_install_if_available "${manager}"
+      ;;
+    waypaper)
+      install_waypaper_manager "${kind}" "${waypaper_backend}"
       ;;
     none|"")
       ;;
     *)
-      warn "Unknown wallpaper manager choice: $1 (skipping)"
+      warn "Unknown wallpaper manager choice: ${manager} (skipping)"
       ;;
   esac
 }
@@ -911,6 +1062,21 @@ X-GNOME-Autostart-enabled=true
 EOF
 
   chown -R "${u}:${u}" "/home/${u}/.config/autostart"
+}
+
+setup_waypaper_restore_autostart() {
+  local u="$1"
+  info "Adding Waypaper restore autostart for ${u}..."
+  safe_mkdir "/home/${u}/.config/autostart"
+  cat > "/home/${u}/.config/autostart/waypaper-restore.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Waypaper Restore
+Exec=waypaper --restore
+TryExec=waypaper
+X-GNOME-Autostart-enabled=true
+EOF
+  chown "${u}:${u}" "/home/${u}/.config/autostart/waypaper-restore.desktop"
 }
 
 setup_i3_config() {
@@ -1519,6 +1685,7 @@ maybe_reboot() {
 main() {
   require_root
   detect_void
+  show_splashscreen
 
   info "Void auto setup starting (version ${SCRIPT_VERSION})"
   xbps_install ca-certificates sudo || true
@@ -1526,6 +1693,7 @@ main() {
 
   local target_user seatstack de lm browser gpu want_flatpak="n" want_fastfetch="n"
   local want_fonts="y" session_kind launcher launcher_cmd want_wall_mgr="n" wall_mgr="none"
+  local wallpaper_backend="none"
   local file_manager="none"
   target_user="$(choose_target_user)"
   seatstack="$(choose_session_stack)"
@@ -1555,6 +1723,9 @@ main() {
   if yes_no "Install a wallpaper GUI manager?" "n"; then
     want_wall_mgr="y"
     wall_mgr="$(choose_wallpaper_manager "${session_kind}")"
+    if [[ "${wall_mgr}" == "waypaper" ]]; then
+      wallpaper_backend="$(choose_waypaper_backend "${session_kind}")"
+    fi
   fi
 
   local steps=15
@@ -1574,6 +1745,9 @@ main() {
     steps=$((steps + 1))
   fi
   if [[ "${want_wall_mgr}" == "y" && "${wall_mgr}" != "none" ]]; then
+    steps=$((steps + 1))
+  fi
+  if [[ "${wall_mgr}" == "waypaper" ]]; then
     steps=$((steps + 1))
   fi
   if [[ "${de}" == "hyprland" ]]; then
@@ -1606,12 +1780,15 @@ main() {
     run_step "Install file manager" install_file_manager "${file_manager}"
   fi
   if [[ "${want_wall_mgr}" == "y" && "${wall_mgr}" != "none" ]]; then
-    run_step "Install wallpaper manager" install_wallpaper_manager "${wall_mgr}"
+    run_step "Install wallpaper manager" install_wallpaper_manager "${wall_mgr}" "${session_kind}" "${wallpaper_backend}"
   fi
   run_step "Install sample wallpaper" install_sample_wallpaper
 
   run_step "Ensure user groups" ensure_groups_for_seat_stack "$seatstack" "$target_user"
   run_step "Set up user autostart bits" setup_common_user_bits "$target_user"
+  if [[ "${wall_mgr}" == "waypaper" ]]; then
+    run_step "Configure Waypaper restore autostart" setup_waypaper_restore_autostart "$target_user"
+  fi
   run_step "Generate session/config files" configure_session_files "$de" "$target_user" "$lm" "${launcher_cmd}" "${WALLPAPER_SYSTEM_PATH}"
 
   run_step "Install browser" install_browser "$browser"
