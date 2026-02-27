@@ -142,7 +142,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - `Hyprland` (experimental) with the same Wayland basics.
 - **Panels/bars**:
   - X11 installs include `polybar`.
-  - Wayland installs include `waybar`.
+  - Wayland installs include `Waybar` (with lowercase `waybar` fallback handled by the generated launcher).
 - **Login managers**: `sddm`, `lightdm` (+ GTK greeter), or `greetd` + `tuigreet`.
   - For `sddm`, the script also ensures `xorg-minimal` + `xauth` and writes an explicit `DisplayServer=x11` drop-in.
 - **Dev tools**: `base-devel`, VCS tools, build tools, and debuggers.
@@ -171,6 +171,7 @@ User‑level autostarts for PipeWire/WirePlumber and Blueman are configured in `
 - **Repo expectations**: assumes certain packages exist (`niri`, `kde5`, etc.); if they don’t, the script attempts fallbacks or just warns.
 - **Hyprland is a workaround**: Hyprland is installed from the third-party `Encoded14/void-extra` repo when selected. This is **experimental/beta**, may break at any time, and is **not affiliated with Hyprland or Void**.
 - **Hyprland launch helper**: the script generates `/usr/local/bin/start-hyprland` (and a `hyprland` alias when needed) and uses that wrapper in the generated Hyprland session entry.
+- **Hyprland extra compatibility**: when Hyprland is selected, the script also attempts to install portal packages including `xdg-desktop-portal-hyprland` when available, and greetd is configured to use `start-hyprland`.
 - **Wayland compositors**: configurations are minimal and may not cover all hardware/locale/input edge cases.
 - **No shellcheck guarantee**: this script has not been rigorously linted in your environment; read it if you care about safety.
 

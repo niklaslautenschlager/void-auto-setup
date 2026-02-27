@@ -117,13 +117,12 @@ run_step() { # label, cmd...
 }
 
 show_splashscreen() {
-  local cyan bold_magenta reset underline
-  cyan="\033[1;36m"
-  bold_magenta="\033[1;35m"
+  local void_green reset underline
+  void_green="\033[38;2;70;185;54m"
   reset="\033[0m"
   underline="\033[4m"
 
-  printf "\n${cyan}"
+  printf "\n${void_green}"
   cat <<'EOF'
  __     ______ ___ ____    ___ _   _ ____ _____  _    _     _     _____ ____
  \ \   / / _ \_ _|  _ \  |_ _| \ | / ___|_   _|/ \  | |   | |   | ____|  _ \
@@ -131,7 +130,7 @@ show_splashscreen() {
    \ V /| |_| | || |_| |  | || |\  |___) || |/ ___ \| |___| |___| |___|  _ <
     \_/  \___/___|____/  |___|_| \_|____/ |_/_/   \_\_____|_____|_____|_| \_\
 EOF
-  printf "${bold_magenta}${underline}Enter the void...${reset}\n\n"
+  printf "${underline}Enter the void...${reset}\n\n"
 }
 
 require_root() {
@@ -205,6 +204,24 @@ xbps_install_first_available() { # label, pkg1, pkg2...
   return 1
 }
 
+ensure_waybar_launcher() {
+  local path="/usr/local/bin/Waybar"
+  safe_mkdir "$(dirname "${path}")"
+  cat > "${path}" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+if command -v Waybar >/dev/null 2>&1; then
+  exec "$(command -v Waybar)" "$@"
+fi
+if command -v waybar >/dev/null 2>&1; then
+  exec "$(command -v waybar)" "$@"
+fi
+echo "Waybar/waybar not found." >&2
+exit 127
+EOF
+  chmod 0755 "${path}"
+}
+
 enable_void_extra_repo() {
   # Encoded14/void-extra (prebuilt repo)
   # Not affiliated with Void Linux. Use at your own risk.
@@ -246,7 +263,7 @@ install_hyprland_experimental() {
   fi
 
   # Useful Wayland basics; install only if available.
-  xbps_install_if_available xdg-desktop-portal xdg-desktop-portal-wlr xwayland
+  xbps_install_if_available xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-wlr xwayland
 }
 
 enable_service() { # /etc/sv/name -> /var/service/name
@@ -946,7 +963,9 @@ install_x11_base() {
 }
 
 install_wayland_base() {
-  xbps_install wayland wayland-protocols xdg-utils xdg-user-dirs waybar
+  xbps_install wayland wayland-protocols xdg-utils xdg-user-dirs
+  xbps_install_first_available "Waybar" Waybar waybar || true
+  ensure_waybar_launcher
 }
 
 install_de() {
@@ -1322,7 +1341,7 @@ EOF
 
 # Bluetooth tray (optional, on wlroots may need XWayland; still fine)
 command -v blueman-applet >/dev/null && blueman-applet &
-command -v waybar >/dev/null && waybar &
+command -v Waybar >/dev/null && Waybar &
 
 # Keybindings (super)
 riverctl map normal Super Return spawn foot
@@ -1365,7 +1384,7 @@ input {
 spawn-at-startup "pipewire"
 spawn-at-startup "wireplumber"
 spawn-at-startup "blueman-applet"
-spawn-at-startup "waybar"
+spawn-at-startup "Waybar"
 EOF
   printf "spawn-at-startup \"swaybg -i %s -m fill\"\n\n" "${wallpaper_path}" >>"/home/${u}/.config/niri/config.kdl"
   cat >> "/home/${u}/.config/niri/config.kdl" <<'EOF'
@@ -1425,7 +1444,7 @@ EOF
   printf "exec-once = pipewire\nexec-once = wireplumber\n" >>"/home/${u}/.config/hypr/hyprland.conf"
   printf "exec-once = swaybg -i %q -m fill\n" "${wallpaper_path}" >>"/home/${u}/.config/hypr/hyprland.conf"
   printf "exec-once = blueman-applet\n" >>"/home/${u}/.config/hypr/hyprland.conf"
-  printf "exec-once = waybar\n" >>"/home/${u}/.config/hypr/hyprland.conf"
+  printf "exec-once = Waybar\n" >>"/home/${u}/.config/hypr/hyprland.conf"
 
   chown -R "${u}:${u}" "/home/${u}/.config/hypr"
 }
@@ -1454,7 +1473,7 @@ bindsym $mod+Shift+l move right
 
 exec pipewire
 exec wireplumber
-exec waybar
+exec Waybar
 exec blueman-applet
 EOF
   if [[ -n "${launcher_cmd}" ]]; then
@@ -1622,7 +1641,7 @@ configure_session_files() {
       i3|dwm|plasma|awesome|herbstluftwm) cmd="startx" ;;
       river) cmd="river" ;;
       niri) cmd="niri" ;;
-      hyprland) cmd="Hyprland" ;;
+      hyprland) cmd="start-hyprland" ;;
       sway) cmd="sway" ;;
     esac
     cat > /etc/greetd/config.toml <<EOF
