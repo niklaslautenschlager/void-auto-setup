@@ -9,7 +9,7 @@ This script:
 - Sets up **PipeWire + WirePlumber** audio (no `pipewire-pulse` package required).
 - Installs Bluetooth (BlueZ + Blueman).
 - Installs GPU drivers (NVIDIA proprietary via nonfree, AMD/Intel via Mesa/Vulkan).
-- Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`.
+- Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`, `sway`, `awesome`, `herbstluftwm`.
 - Also supports **Hyprland (experimental/beta)** via a third-party repo workaround (see below).
 - Generates basic, usable configs for the chosen environment.
 - Lets you choose a browser (Firefox, Chromium, Brave, Librewolf).
@@ -75,6 +75,7 @@ The script logs to:
 2. **Seat management stack**
    - `elogind` (default): works well with KDE/SDDM and most setups.
    - `seatd`: lighter, good for Wayland compositors.
+   - If you choose `sddm`, the script automatically switches to `elogind` to avoid common VT/xauth failures.
 
 3. **Desktop / WM**
    - `i3` (default, X11)
@@ -83,6 +84,9 @@ The script logs to:
    - `dwm` (X11)
    - `niri` (Wayland; may require repo support)
    - `Hyprland` (Wayland; **EXPERIMENTAL/BETA** workaround via `Encoded14/void-extra`)
+   - `sway` (Wayland)
+   - `awesome` (X11)
+   - `herbstluftwm` (X11)
 
 4. **Login manager**
    - `sddm` (default)
@@ -131,15 +135,22 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - `i3` + basic `i3status`, `dmenu`, `picom`, `feh`, `alacritty`.
   - `plasma-desktop` or `kde5` meta‑package, `konsole`, `dolphin` (when available).
   - `dwm` + `st` + basics.
-  - `river` or `niri` with basic tooling (`foot`, `wofi`, `swaybg`, `grim`, `slurp`, `wl-clipboard`).
+  - `awesome` + basics.
+  - `herbstluftwm` + basics.
+  - `river`, `niri`, or `sway` with basic tooling (`foot`, `wofi`, `swaybg`, `grim`, `slurp`, `wl-clipboard`).
+  - `Hyprland` (experimental) with the same Wayland basics.
+- **Panels/bars**:
+  - X11 installs include `polybar`.
+  - Wayland installs include `waybar`.
 - **Login managers**: `sddm`, `lightdm` (+ GTK greeter), or `greetd` + `tuigreet`.
+  - For `sddm`, the script also ensures `xorg-minimal` + `xauth` and writes an explicit `DisplayServer=x11` drop-in.
 - **Dev tools**: `base-devel`, VCS tools, build tools, and debuggers.
 - **Fonts** (when available): `dejavu-fonts-ttf` (or `xorg-fonts`), `noto-fonts-ttf`, `noto-fonts-cjk`, `noto-fonts-emoji`, `nerd-fonts`.
 - **Wallpaper**:
   - Repo sample wallpaper: `wallpaper/sample.jpg`
   - Installed to: `/usr/share/backgrounds/void-auto-setup/sample.jpg`
   - Configs are generated to use that wallpaper by default (X11 via `feh`, Wayland via `swaybg`).
-  - For X11 sessions created by this script (i3/dwm/Plasma X11), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
+  - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
 
 Font installs are **repo-safe**: the script checks whether each font package exists in XBPS before attempting to install it, so missing font packages won't abort the run.
 
@@ -155,7 +166,8 @@ User‑level autostarts for PipeWire/WirePlumber and Blueman are configured in `
 - **Not idempotent**: running it multiple times may be noisy or clobber some simple configs.
 - **Hard‑coded defaults**: a lot of package choices and configs are opinionated.
 - **Repo expectations**: assumes certain packages exist (`niri`, `kde5`, etc.); if they don’t, the script attempts fallbacks or just warns.
-- **Hyprland is a workaround**: Hyprland is installed from the third‑party `Encoded14/void-extra` repo when selected. This is **experimental/beta**, may break at any time, and is **not affiliated with Hyprland or Void**.
+- **Hyprland is a workaround**: Hyprland is installed from the third-party `Encoded14/void-extra` repo when selected. This is **experimental/beta**, may break at any time, and is **not affiliated with Hyprland or Void**.
+- **Hyprland launch helper**: the script generates `/usr/local/bin/start-hyprland` (and a `hyprland` alias when needed) and uses that wrapper in the generated Hyprland session entry.
 - **Wayland compositors**: configurations are minimal and may not cover all hardware/locale/input edge cases.
 - **No shellcheck guarantee**: this script has not been rigorously linted in your environment; read it if you care about safety.
 

@@ -7,7 +7,7 @@ set -euo pipefail
 # - Installs dbus + (elogind OR seatd)
 # - Installs PipeWire + WirePlumber + Bluetooth (BlueZ + Blueman + libspa-bluetooth)
 # - Installs GPU drivers (NVIDIA proprietary supported via Void nonfree; AMD uses Mesa/Vulkan with optional AMDVLK)
-# - Prompts for Desktop/WM: i3 (default), KDE Plasma, river, dwm, niri
+# - Prompts for Desktop/WM: i3 (default), KDE Plasma, river, dwm, niri, sway, awesome, herbstluftwm
 # - Generates usable starter configs for each
 # - Prompts for browser (Firefox default)
 # - Optional Flatpak + Flathub
@@ -286,7 +286,7 @@ choose_session_stack() {
 }
 
 choose_de() {
-  local prompt=$'\nDesktop/WM selection:\n  1) i3 (default, X11)\n  2) KDE Plasma (X11/Wayland, heavier)\n  3) river (Wayland)\n  4) dwm (X11, minimal)\n  5) niri (Wayland)\n  6) Hyprland (Wayland, EXPERIMENTAL/BETA via void-extra)\nChoose'
+  local prompt=$'\nDesktop/WM selection:\n  1) i3 (default, X11)\n  2) KDE Plasma (X11/Wayland, heavier)\n  3) river (Wayland)\n  4) dwm (X11, minimal)\n  5) niri (Wayland)\n  6) Hyprland (Wayland, EXPERIMENTAL/BETA via void-extra)\n  7) sway (Wayland)\n  8) awesome (X11)\n  9) herbstluftwm (X11)\nChoose'
   local c
   c="$(read_default "${prompt}" "1")"
   case "$c" in
@@ -295,6 +295,9 @@ choose_de() {
     4) echo "dwm" ;;
     5) echo "niri" ;;
     6) echo "hyprland" ;;
+    7) echo "sway" ;;
+    8) echo "awesome" ;;
+    9) echo "herbstluftwm" ;;
     *) echo "i3" ;;
   esac
 }
@@ -309,6 +312,15 @@ choose_login_manager() {
     4) echo "none" ;;
     *) echo "sddm" ;;
   esac
+}
+
+normalize_stack_for_login_manager() { # seatstack, lm -> echo seatstack
+  local seatstack="$1" lm="$2"
+  if [[ "$lm" == "sddm" && "$seatstack" != "elogind" ]]; then
+    warn "SDDM with seatd commonly fails on Void (VT/xauth). Switching seat stack to elogind."
+    seatstack="elogind"
+  fi
+  echo "$seatstack"
 }
 
 choose_browser() {
@@ -474,7 +486,7 @@ install_sample_wallpaper() {
 
 session_kind_for_de() { # de -> x11|wayland
   case "$1" in
-    river|niri|hyprland) echo "wayland" ;;
+    river|niri|hyprland|sway) echo "wayland" ;;
     *) echo "x11" ;;
   esac
 }
@@ -748,7 +760,17 @@ install_login_manager() {
   case "$lm" in
     sddm)
       info "Installing SDDM..."
-      xbps_install sddm
+      # SDDM on Void uses an X11 greeter by default; make sure Xorg + xauth are present.
+      xbps_install sddm xorg-minimal xauth
+      safe_mkdir /etc/sddm.conf.d
+      cat > /etc/sddm.conf.d/10-void-auto-setup.conf <<'EOF'
+[General]
+DisplayServer=x11
+EOF
+      if id sddm >/dev/null 2>&1; then
+        safe_mkdir /var/lib/sddm
+        chown sddm:sddm /var/lib/sddm || true
+      fi
       enable_service sddm
       ;;
     lightdm)
@@ -769,11 +791,11 @@ install_login_manager() {
 
 # ---------------- desktop / wm installs ----------------
 install_x11_base() {
-  xbps_install xorg-minimal xinit xauth xsetroot xrandr xdg-utils xdg-user-dirs
+  xbps_install xorg-minimal xinit xauth xsetroot xrandr xdg-utils xdg-user-dirs polybar
 }
 
 install_wayland_base() {
-  xbps_install wayland wayland-protocols xdg-utils xdg-user-dirs
+  xbps_install wayland wayland-protocols xdg-utils xdg-user-dirs waybar
 }
 
 install_de() {
@@ -799,6 +821,16 @@ install_de() {
       install_x11_base
       xbps_install dwm st dmenu feh picom
       ;;
+    awesome)
+      info "Installing awesome WM (X11)..."
+      install_x11_base
+      xbps_install awesome feh picom alacritty
+      ;;
+    herbstluftwm)
+      info "Installing herbstluftwm (X11)..."
+      install_x11_base
+      xbps_install herbstluftwm dmenu feh picom alacritty
+      ;;
     river)
       info "Installing river (Wayland)..."
       install_wayland_base
@@ -819,6 +851,11 @@ install_de() {
       info "Installing Hyprland base dependencies (Wayland)..."
       install_wayland_base
       xbps_install_if_available foot swaybg grim slurp wl-clipboard
+      ;;
+    sway)
+      info "Installing sway (Wayland)..."
+      install_wayland_base
+      xbps_install sway foot swaybg grim slurp wl-clipboard
       ;;
   esac
 }
@@ -1005,6 +1042,89 @@ EOF
   chown "${u}:${u}" "/home/${u}/.xprofile"
 }
 
+setup_awesome_config() {
+  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
+  info "Configuring awesome for ${u}..."
+  safe_mkdir "/home/${u}/.config/awesome"
+  if [[ -f /etc/xdg/awesome/rc.lua ]]; then
+    cp -f /etc/xdg/awesome/rc.lua "/home/${u}/.config/awesome/rc.lua"
+  else
+    warn "/etc/xdg/awesome/rc.lua not found. Awesome will use packaged defaults if available."
+  fi
+
+  cat > "/home/${u}/.xprofile" <<'EOF'
+# generated
+(picom &) >/dev/null 2>&1 || true
+EOF
+  printf "(feh --bg-scale %q &) >/dev/null 2>&1 || true\n" "${wallpaper_path}" >>"/home/${u}/.xprofile"
+  chown -R "${u}:${u}" "/home/${u}/.config/awesome" "/home/${u}/.xprofile"
+
+  setup_xinitrc_for_x11 "$u" "awesome" "${wallpaper_path}"
+}
+
+setup_herbstluftwm_config() {
+  local u="$1" launcher_cmd="${2:-dmenu_run}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
+  info "Generating herbstluftwm config for ${u}..."
+  safe_mkdir "/home/${u}/.config/herbstluftwm"
+  cat > "/home/${u}/.config/herbstluftwm/autostart" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+
+hc() { herbstclient "$@"; }
+
+# basic reset/defaults
+hc emit_hook reload
+hc set frame_border_width 2
+hc set window_border_width 2
+hc set frame_gap 8
+hc set smart_frame_surroundings on
+hc set smart_window_surroundings on
+hc set mouse_recenter_gap 0
+
+# tags/workspaces
+for i in 1 2 3 4 5 6 7 8 9; do
+  hc add "$i" >/dev/null 2>&1 || true
+done
+hc use 1
+
+# keybinds
+Mod=Mod4
+hc keybind "$Mod-Return" spawn alacritty
+EOF
+  if [[ -n "${launcher_cmd}" ]]; then
+    printf "hc keybind \"\$Mod-d\" spawn %s\n" "${launcher_cmd}" >>"/home/${u}/.config/herbstluftwm/autostart"
+  fi
+  cat >> "/home/${u}/.config/herbstluftwm/autostart" <<'EOF'
+hc keybind "$Mod-Shift-q" close
+hc keybind "$Mod-Shift-e" quit
+
+# directional focus/move
+hc keybind "$Mod-h" focus left
+hc keybind "$Mod-j" focus down
+hc keybind "$Mod-k" focus up
+hc keybind "$Mod-l" focus right
+hc keybind "$Mod-Shift-h" shift left
+hc keybind "$Mod-Shift-j" shift down
+hc keybind "$Mod-Shift-k" shift up
+hc keybind "$Mod-Shift-l" shift right
+
+# startup helpers
+if command -v pipewire >/dev/null 2>&1 && ! pgrep -x pipewire >/dev/null 2>&1; then
+  pipewire &
+fi
+if command -v wireplumber >/dev/null 2>&1 && ! pgrep -x wireplumber >/dev/null 2>&1; then
+  wireplumber &
+fi
+command -v blueman-applet >/dev/null 2>&1 && blueman-applet &
+command -v picom >/dev/null 2>&1 && picom &
+EOF
+  printf "command -v feh >/dev/null 2>&1 && feh --bg-scale %q &\n" "${wallpaper_path}" >>"/home/${u}/.config/herbstluftwm/autostart"
+  chmod 0755 "/home/${u}/.config/herbstluftwm/autostart"
+  chown -R "${u}:${u}" "/home/${u}/.config/herbstluftwm"
+
+  setup_xinitrc_for_x11 "$u" "herbstluftwm" "${wallpaper_path}"
+}
+
 setup_plasma_config() {
   local u="$1"
   info "Plasma: minimal setup. SDDM recommended."
@@ -1036,6 +1156,7 @@ EOF
 
 # Bluetooth tray (optional, on wlroots may need XWayland; still fine)
 command -v blueman-applet >/dev/null && blueman-applet &
+command -v waybar >/dev/null && waybar &
 
 # Keybindings (super)
 riverctl map normal Super Return spawn foot
@@ -1078,6 +1199,7 @@ input {
 spawn-at-startup "pipewire"
 spawn-at-startup "wireplumber"
 spawn-at-startup "blueman-applet"
+spawn-at-startup "waybar"
 EOF
   printf "spawn-at-startup \"swaybg -i %s -m fill\"\n\n" "${wallpaper_path}" >>"/home/${u}/.config/niri/config.kdl"
   cat >> "/home/${u}/.config/niri/config.kdl" <<'EOF'
@@ -1137,8 +1259,43 @@ EOF
   printf "exec-once = pipewire\nexec-once = wireplumber\n" >>"/home/${u}/.config/hypr/hyprland.conf"
   printf "exec-once = swaybg -i %q -m fill\n" "${wallpaper_path}" >>"/home/${u}/.config/hypr/hyprland.conf"
   printf "exec-once = blueman-applet\n" >>"/home/${u}/.config/hypr/hyprland.conf"
+  printf "exec-once = waybar\n" >>"/home/${u}/.config/hypr/hyprland.conf"
 
   chown -R "${u}:${u}" "/home/${u}/.config/hypr"
+}
+
+setup_sway_config() {
+  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
+  info "Generating sway config for ${u}..."
+  safe_mkdir "/home/${u}/.config/sway"
+  cat > "/home/${u}/.config/sway/config" <<'EOF'
+# generated sway config (minimal usable)
+set $mod Mod4
+
+bindsym $mod+Return exec foot
+bindsym $mod+Shift+q kill
+bindsym $mod+Shift+e exit
+
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+exec pipewire
+exec wireplumber
+exec waybar
+exec blueman-applet
+EOF
+  if [[ -n "${launcher_cmd}" ]]; then
+    printf "bindsym \$mod+d exec %s\n" "${launcher_cmd}" >>"/home/${u}/.config/sway/config"
+  fi
+  printf "output * bg %q fill\n" "${wallpaper_path}" >>"/home/${u}/.config/sway/config"
+  chown -R "${u}:${u}" "/home/${u}/.config/sway"
 }
 
 setup_wayland_session_desktop_file() {
@@ -1183,6 +1340,56 @@ EOF
   echo "${path}"
 }
 
+write_hyprland_launcher_wrapper() {
+  local path="/usr/local/bin/void-auto-setup-start-hyprland"
+  safe_mkdir "$(dirname "${path}")"
+  cat > "${path}" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+
+find_hyprland_binary() {
+  for candidate in /usr/bin/Hyprland /usr/bin/hyprland /bin/Hyprland /bin/hyprland; do
+    if [ -x "${candidate}" ]; then
+      printf "%s\n" "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+HYPRLAND_BIN="$(find_hyprland_binary || true)"
+if [ -z "${HYPRLAND_BIN}" ]; then
+  echo "Hyprland binary not found. Install package 'hyprland' first." >&2
+  exit 127
+fi
+
+if [ -z "${XDG_SESSION_TYPE:-}" ]; then
+  export XDG_SESSION_TYPE=wayland
+fi
+if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+  export XDG_CURRENT_DESKTOP=Hyprland
+fi
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "${HYPRLAND_BIN}"
+fi
+
+exec "${HYPRLAND_BIN}"
+EOF
+  chmod 0755 "${path}"
+
+  # Convenience aliases for manual TTY startup.
+  ln -sfn "${path}" /usr/local/bin/start-hyprland
+  if [[ ! -x /usr/bin/hyprland ]]; then
+    ln -sfn "${path}" /usr/local/bin/hyprland
+  fi
+
+  echo "${path}"
+}
+
 configure_session_files() {
   local de="$1" u="$2" lm="$3"
   local launcher_cmd="${4:-}" wallpaper_path="${5:-${WALLPAPER_SYSTEM_PATH}}"
@@ -1208,6 +1415,18 @@ configure_session_files() {
       dwm_exec="$(write_x11_wallpaper_wrapper "dwm" "dwm" "${wallpaper_path}")"
       setup_x11_session_desktop_file "dwm" "${dwm_exec}"
       ;;
+    awesome)
+      setup_awesome_config "$u" "${wallpaper_path}"
+      local awesome_exec="awesome"
+      awesome_exec="$(write_x11_wallpaper_wrapper "awesome" "awesome" "${wallpaper_path}")"
+      setup_x11_session_desktop_file "awesome" "${awesome_exec}"
+      ;;
+    herbstluftwm)
+      setup_herbstluftwm_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
+      local herbst_exec="herbstluftwm"
+      herbst_exec="$(write_x11_wallpaper_wrapper "herbstluftwm" "herbstluftwm" "${wallpaper_path}")"
+      setup_x11_session_desktop_file "herbstluftwm" "${herbst_exec}"
+      ;;
     river)
       setup_river_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
       setup_wayland_session_desktop_file "river" "river"
@@ -1219,7 +1438,13 @@ configure_session_files() {
       ;;
     hyprland)
       setup_hyprland_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      setup_wayland_session_desktop_file "Hyprland (experimental)" "Hyprland"
+      local hypr_exec=""
+      hypr_exec="$(write_hyprland_launcher_wrapper)"
+      setup_wayland_session_desktop_file "Hyprland (experimental)" "${hypr_exec}"
+      ;;
+    sway)
+      setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
+      setup_wayland_session_desktop_file "sway" "sway"
       ;;
   esac
 
@@ -1228,10 +1453,11 @@ configure_session_files() {
     safe_mkdir /etc/greetd
     local cmd=""
     case "$de" in
-      i3|dwm|plasma) cmd="startx" ;;
+      i3|dwm|plasma|awesome|herbstluftwm) cmd="startx" ;;
       river) cmd="river" ;;
       niri) cmd="niri" ;;
       hyprland) cmd="Hyprland" ;;
+      sway) cmd="sway" ;;
     esac
     cat > /etc/greetd/config.toml <<EOF
 [terminal]
@@ -1269,7 +1495,7 @@ Notes:
 - PipeWire/WirePlumber are started via user autostart entries (no systemd user units on Void).
 - If you chose "none" for login manager, use:
     startx
-  from a TTY (after login) to start X11 sessions (i3/dwm/plasma x11).
+  from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm).
 - For Wayland sessions, use SDDM/LightDM/greetd, or run compositor from tty.
 
 Log:
@@ -1305,6 +1531,7 @@ main() {
   seatstack="$(choose_session_stack)"
   de="$(choose_de)"
   lm="$(choose_login_manager)"
+  seatstack="$(normalize_stack_for_login_manager "${seatstack}" "${lm}")"
   browser="$(choose_browser)"
   gpu="$(choose_gpu)"
 
