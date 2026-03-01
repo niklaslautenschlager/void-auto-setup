@@ -228,12 +228,13 @@ ensure_waybar_launcher() {
   cat > "${path}" <<'EOF'
 #!/usr/bin/env sh
 set -eu
-if command -v Waybar >/dev/null 2>&1; then
-  exec "$(command -v Waybar)" "$@"
-fi
-if command -v waybar >/dev/null 2>&1; then
-  exec "$(command -v waybar)" "$@"
-fi
+
+for candidate in /usr/bin/Waybar /usr/bin/waybar /bin/Waybar /bin/waybar; do
+  if [ -x "${candidate}" ]; then
+    exec "${candidate}" "$@"
+  fi
+done
+
 echo "Waybar/waybar not found." >&2
 exit 127
 EOF
@@ -1650,6 +1651,64 @@ EOF
   echo "${path}"
 }
 
+write_wayland_launcher_wrapper() { # name, desktop_id, candidate...
+  local name="$1" desktop_id="$2"
+  shift 2
+  local path="/usr/local/bin/void-auto-setup-start-${name}"
+  local candidate
+
+  safe_mkdir "$(dirname "${path}")"
+
+  cat > "${path}" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+
+find_session_bin() {
+EOF
+  for candidate in "$@"; do
+    printf '  if [ -x "%s" ]; then\n    printf "%%s\\n" "%s"\n    return 0\n  fi\n' "${candidate}" "${candidate}" >> "${path}"
+  done
+  cat >> "${path}" <<EOF
+  return 1
+}
+
+SESSION_BIN="\$(find_session_bin || true)"
+if [ -z "\${SESSION_BIN}" ]; then
+  echo "No executable found for ${name}." >&2
+  exit 127
+fi
+
+if [ -z "\${XDG_SESSION_TYPE:-}" ]; then
+  export XDG_SESSION_TYPE=wayland
+fi
+if [ -z "\${XDG_CURRENT_DESKTOP:-}" ]; then
+  export XDG_CURRENT_DESKTOP=${desktop_id}
+fi
+if [ -z "\${XDG_SESSION_DESKTOP:-}" ]; then
+  export XDG_SESSION_DESKTOP=${desktop_id}
+fi
+if [ -z "\${DESKTOP_SESSION:-}" ]; then
+  export DESKTOP_SESSION=${desktop_id}
+fi
+if [ -z "\${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/\$(id -u)" ]; then
+  export XDG_RUNTIME_DIR="/run/user/\$(id -u)"
+fi
+if [ -z "\${LIBSEAT_BACKEND:-}" ] && ( command -v loginctl >/dev/null 2>&1 || [ -e /run/elogind.pid ] || [ -L /var/service/elogind ] ); then
+  export LIBSEAT_BACKEND=logind
+fi
+
+if [ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "\${SESSION_BIN}"
+fi
+
+exec "\${SESSION_BIN}"
+EOF
+
+  chmod 0755 "${path}"
+  ln -sfn "${path}" "/usr/local/bin/start-${name}"
+  echo "${path}"
+}
+
 write_terminal_launcher_wrapper() {
   local path="/usr/local/bin/void-auto-setup-terminal"
   safe_mkdir "$(dirname "${path}")"
@@ -1669,43 +1728,7 @@ EOF
 }
 
 write_swayfx_launcher_wrapper() {
-  local path="/usr/local/bin/void-auto-setup-start-swayfx"
-  safe_mkdir "$(dirname "${path}")"
-  cat > "${path}" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-
-find_sway_bin() {
-  for candidate in /usr/bin/swayfx /usr/bin/sway /bin/swayfx /bin/sway; do
-    if [ -x "${candidate}" ]; then
-      printf "%s\n" "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-SWAY_BIN="$(find_sway_bin || true)"
-if [ -z "${SWAY_BIN}" ]; then
-  echo "Neither swayfx nor sway binary found." >&2
-  exit 127
-fi
-
-if [ -z "${XDG_SESSION_TYPE:-}" ]; then
-  export XDG_SESSION_TYPE=wayland
-fi
-if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
-  export XDG_CURRENT_DESKTOP=swayfx
-fi
-
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
-  exec dbus-run-session -- "${SWAY_BIN}"
-fi
-
-exec "${SWAY_BIN}"
-EOF
-  chmod 0755 "${path}"
-  echo "${path}"
+  write_wayland_launcher_wrapper "swayfx" "swayfx" /usr/bin/swayfx /usr/bin/sway /bin/swayfx /bin/sway
 }
 
 write_hyprland_launcher_wrapper() {
@@ -1746,7 +1769,7 @@ fi
 if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
   export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
-if [ -z "${LIBSEAT_BACKEND:-}" ] && command -v loginctl >/dev/null 2>&1; then
+if [ -z "${LIBSEAT_BACKEND:-}" ] && ( command -v loginctl >/dev/null 2>&1 || [ -e /run/elogind.pid ] || [ -L /var/service/elogind ] ); then
   export LIBSEAT_BACKEND=logind
 fi
 
@@ -1824,12 +1847,15 @@ configure_session_files() {
       ;;
     river)
       setup_river_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      setup_wayland_session_desktop_file "river" "river"
+      local river_exec=""
+      river_exec="$(write_wayland_launcher_wrapper "river" "river" /usr/bin/river /bin/river)"
+      setup_wayland_session_desktop_file "river" "${river_exec}"
       ;;
     niri)
       setup_niri_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      # niri usually provides its own session; add one if missing
-      setup_wayland_session_desktop_file "niri" "niri"
+      local niri_exec=""
+      niri_exec="$(write_wayland_launcher_wrapper "niri" "niri" /usr/bin/niri /bin/niri)"
+      setup_wayland_session_desktop_file "niri" "${niri_exec}"
       ;;
     hyprland)
       setup_hyprland_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
@@ -1839,7 +1865,9 @@ configure_session_files() {
       ;;
     sway)
       setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      setup_wayland_session_desktop_file "sway" "sway"
+      local sway_exec=""
+      sway_exec="$(write_wayland_launcher_wrapper "sway" "sway" /usr/bin/sway /bin/sway)"
+      setup_wayland_session_desktop_file "sway" "${sway_exec}"
       ;;
     swayfx)
       setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
@@ -1855,10 +1883,10 @@ configure_session_files() {
     local cmd=""
     case "$de" in
       i3|dwm|plasma|awesome|herbstluftwm|xfce|gnome|mate) cmd="startx" ;;
-      river) cmd="river" ;;
-      niri) cmd="niri" ;;
-      hyprland) cmd="start-hyprland" ;;
-      sway) cmd="sway" ;;
+      river) cmd="/usr/local/bin/void-auto-setup-start-river" ;;
+      niri) cmd="/usr/local/bin/void-auto-setup-start-niri" ;;
+      hyprland) cmd="/usr/local/bin/void-auto-setup-start-hyprland" ;;
+      sway) cmd="/usr/local/bin/void-auto-setup-start-sway" ;;
       swayfx) cmd="/usr/local/bin/void-auto-setup-start-swayfx" ;;
     esac
     cat > /etc/greetd/config.toml <<EOF
