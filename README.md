@@ -4,13 +4,15 @@ Post-install setup script for a fresh **Void Linux (runit)** install.
 
 This script:
 
+- Runs a full first-boot system update (`xbps-install -Suy`) and installs `sudo`, `git`, `curl`, and `xtools`.
 - Enables Void repos (nonfree, multilib where available).
 - Installs core services: `dbus` plus either `elogind` or `seatd`, and `polkit`.
-- Sets up **PipeWire + WirePlumber** audio (no `pipewire-pulse` package required).
+- Sets up **PipeWire + WirePlumber** audio, including `pipewire-pulse`, `pavucontrol`, and XDG autostart entries.
 - Installs Bluetooth (BlueZ + Blueman).
-- Installs GPU drivers (NVIDIA proprietary via nonfree, AMD/Intel via Mesa/Vulkan).
+- Installs GPU drivers (NVIDIA proprietary via nonfree, AMD/Intel via Mesa/Vulkan), and enables `nvidia_drm.modeset=1` in GRUB when NVIDIA is selected.
 - Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`, `Hyprland`, `sway`, `swayfx`, `awesome`, `herbstluftwm`, `XFCE`, `GNOME`, `MATE`.
 - Also supports **Hyprland (experimental/beta)** via a third-party repo workaround (see below).
+- For Hyprland, the script now follows the “no custom config” path so first launch can generate Hyprland’s default config.
 - Generates basic, usable configs for the chosen environment.
 - Lets you choose a browser (Firefox, Chromium, Brave, Librewolf).
 - Optionally installs Flatpak + Flathub.
@@ -131,10 +133,10 @@ All prompts have a default value; pressing **Enter** keeps the default.
 ## What it installs (high‑level)
 
 - **Core**: `dbus`, `polkit`, `elogind` or `seatd`.
-- **Audio**: `pipewire`, `wireplumber`, `alsa-utils`, plus `libspa-bluetooth` when present.
+- **Audio**: `pipewire`, `wireplumber`, `pipewire-pulse`, `alsa-utils`, `pavucontrol`, plus `libspa-bluetooth` when present.
 - **Bluetooth**: `bluez`, `blueman`, runit service `bluetoothd`.
 - **GPU**:
-  - NVIDIA: `linux-headers`, `nvidia-dkms` + `nvidia` (or fallback to `nvidia`), optional 32‑bit libs.
+  - NVIDIA: `nvidia`, `nvidia-libs-32bit` (when available), and GRUB KMS enablement (`nvidia_drm.modeset=1`) when `/etc/default/grub` is present.
   - AMD / Intel: Mesa + Vulkan stack; optional `amdvlk` for AMD.
   - If no suitable GPU can be detected (no `lspci`, empty output, or unknown vendor), the script **skips GPU driver installation** and prints a warning telling you to install drivers manually.
 - **Desktops/WMs** (depending on choice):
@@ -145,7 +147,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - `herbstluftwm` + basics.
   - `river`, `niri`, `sway`, or `swayfx` with basic tooling (`foot`, `wofi`, `swaybg`, `grim`, `slurp`, `wl-clipboard`).
   - `XFCE`, `GNOME`, and `MATE` desktop environments.
-  - `Hyprland` (experimental) with the same Wayland basics.
+  - `Hyprland` (experimental) with the tutorial’s support stack: `xorg-server-xwayland`, `wofi`, `Waybar`, `mako`, `alacritty`, `grim`, `slurp`, `wl-clipboard`, `polkit-gnome`, and the portal set.
 - **Panels/bars**:
   - X11 installs include `polybar`.
   - Wayland installs include `Waybar` (with lowercase `waybar` fallback handled by the generated launcher).
@@ -160,6 +162,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm/XFCE/GNOME/MATE), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
   - Optional wallpaper manager choices include `nitrogen`, `azote`, and `waypaper`.
   - If `waypaper` is selected, the script installs `pipx`, required Python deps (GObject/imageio/imageio-ffmpeg/screeninfo/platformdirs variants when available), one selected backend, and adds `waypaper --restore` autostart for the target user.
+  - PipeWire, `pipewire-pulse`, and WirePlumber autostart via `~/.config/autostart/` symlinks to packaged desktop entries when available.
 
 Font installs are **repo-safe**: the script checks whether each font package exists in XBPS before attempting to install it, so missing font packages won't abort the run.
 
@@ -178,6 +181,7 @@ User‑level autostarts for PipeWire/WirePlumber and Blueman are configured in `
 - **Hyprland is a workaround**: Hyprland is installed from the third-party `Encoded14/void-extra` repo when selected. This is **experimental/beta**, may break at any time, and is **not affiliated with Hyprland or Void**.
 - **Hyprland launch helper**: the script generates `/usr/local/bin/start-hyprland` (and a `hyprland` alias when needed) and uses that wrapper in the generated Hyprland session entry.
 - **Hyprland extra compatibility**: when Hyprland is selected, the script also attempts to install portal packages including `xdg-desktop-portal-hyprland` when available, and greetd is configured to use `start-hyprland`.
+- **Hyprland startup path**: the script no longer writes a custom Hyprland config by default, matching the tutorial path where Hyprland generates its own default config on first launch.
 - **Wayland compositors**: configurations are minimal and may not cover all hardware/locale/input edge cases.
 - **No shellcheck guarantee**: this script has not been rigorously linted in your environment; read it if you care about safety.
 

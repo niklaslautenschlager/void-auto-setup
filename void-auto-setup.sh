@@ -167,6 +167,11 @@ xbps_sync() {
   xbps-install -Sy >/dev/null
 }
 
+xbps_full_update() {
+  info "Running full system update..."
+  xbps-install -Suy -y
+}
+
 xbps_is_installed() { # pkg
   xbps-query "$1" >/dev/null 2>&1
 }
@@ -281,8 +286,15 @@ install_hyprland_experimental() {
     warn "hyprland package not found even after enabling void-extra. Skipping Hyprland install."
   fi
 
-  # Useful Wayland basics; install only if available.
-  xbps_install_if_available xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-wlr xwayland
+  # Install the tutorial's exact supporting stack where available.
+  xbps_install_if_available \
+    xorg-server-xwayland \
+    wofi mako alacritty \
+    grim slurp wl-clipboard \
+    polkit polkit-gnome \
+    xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
+  xbps_install_first_available "Waybar" Waybar waybar || true
+  ensure_waybar_launcher
 }
 
 enable_service() { # /etc/sv/name -> /var/service/name
@@ -494,21 +506,23 @@ install_core_services() {
   fi
 }
 
+install_bootstrap_tools() {
+  info "Installing first-boot tools from the tutorial..."
+  xbps_install ca-certificates sudo git curl xtools
+}
+
 # ---------------- audio/bluetooth ----------------
 install_pipewire_bluetooth() {
   info "Installing PipeWire + WirePlumber + Bluetooth stack..."
-  xbps_install pipewire wireplumber alsa-utils
+  xbps_install pipewire wireplumber pipewire-pulse alsa-utils pavucontrol
 
   # Bluetooth + GUI manager
   xbps_install bluez blueman
 
   # PipeWire bluetooth (SPA)
   # Some Void repos name it "libspa-bluetooth"; if not, it may be in pipewire package.
-  if xbps-query -R libspa-bluetooth >/dev/null 2>&1; then
-    xbps_install libspa-bluetooth
-  else
-    warn "libspa-bluetooth package not found; Bluetooth audio may still work if included in PipeWire build."
-  fi
+  xbps_install_if_available libspa-bluetooth
+  xbps_install_if_available rfkill
 
   # Enable bluetooth daemon
   enable_service bluetoothd
@@ -852,27 +866,10 @@ install_gaming_multilib() {
     return 0
   fi
 
-  info "Installing common gaming-related packages and 32-bit libs..."
-  # Common Vulkan/OpenGL libs (64-bit)
-  xbps_install mesa mesa-dri vulkan-loader
-
-  # 32-bit counterparts (package names may vary slightly by repo state)
-  for p in mesa-dri-32bit vulkan-loader-32bit libstdc++-32bit; do
-    if xbps-query -R "$p" >/dev/null 2>&1; then
-      xbps_install "$p"
-    else
-      warn "Package not found (skipping): $p"
-    fi
-  done
-
-  # Optional Steam
-  if xbps-query -R steam >/dev/null 2>&1; then
-    if yes_no "Install Steam?" "y"; then
-      xbps_install steam
-    fi
-  else
-    warn "steam package not found in your repos."
-  fi
+  info "Installing Steam and 32-bit runtime libs from the tutorial..."
+  xbps_install_if_available mesa mesa-dri vulkan-loader
+  xbps_install_if_available mesa-dri-32bit vulkan-loader-32bit
+  xbps_install_if_available steam libgcc-32bit libstdc++-32bit libdrm-32bit libglvnd-32bit
 }
 
 # ---------------- GPU drivers ----------------
@@ -907,6 +904,26 @@ auto_detect_gpu_vendor() {
   fi
 }
 
+configure_nvidia_drm_kms() {
+  if [[ ! -f /etc/default/grub ]]; then
+    warn "/etc/default/grub not found. Add nvidia_drm.modeset=1 to your bootloader manually."
+    return 0
+  fi
+
+  if grep -q 'nvidia_drm.modeset=1' /etc/default/grub 2>/dev/null; then
+    info "GRUB already has nvidia_drm.modeset=1."
+    return 0
+  fi
+
+  info "Enabling nvidia_drm.modeset=1 in GRUB..."
+  sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="nvidia_drm.modeset=1 /' /etc/default/grub
+  if have_cmd grub-mkconfig && [[ -d /boot/grub ]]; then
+    grub-mkconfig -o /boot/grub/grub.cfg
+  else
+    warn "grub-mkconfig not found. Regenerate your bootloader config manually."
+  fi
+}
+
 install_gpu_drivers() {
   local choice="$1"
   local vendor="$choice"
@@ -918,26 +935,9 @@ install_gpu_drivers() {
   case "$vendor" in
     nvidia)
       info "Installing NVIDIA proprietary driver stack..."
-      # Kernel headers needed for dkms modules in many setups
-      xbps_install linux-headers
-
-      # Preferred package set on Void commonly includes nvidia-dkms + nvidia
-      # Fallback if nvidia-dkms doesn't exist.
-      if xbps-query -R nvidia-dkms >/dev/null 2>&1; then
-        xbps_install nvidia-dkms nvidia
-      else
-        xbps_install nvidia
-        warn "nvidia-dkms not found; kernel module packaging may differ on your repo snapshot."
-      fi
-
-      # 32-bit libs for Steam/Wine if available
-      for p in nvidia-libs-32bit; do
-        if xbps-query -R "$p" >/dev/null 2>&1; then
-          xbps_install "$p"
-        else
-          warn "Package not found (skipping): $p"
-        fi
-      done
+      xbps_install nvidia
+      xbps_install_if_available nvidia-libs-32bit
+      configure_nvidia_drm_kms
       ;;
     amd)
       info "Installing AMD Mesa/Vulkan stack..."
@@ -1127,7 +1127,7 @@ ensure_groups_for_seat_stack() {
     fi
   fi
   # Common groups for audio/video/input
-  for g in audio video input; do
+  for g in audio video input bluetooth; do
     if getent group "$g" >/dev/null 2>&1; then
       usermod -aG "$g" "$u" || true
     fi
@@ -1139,25 +1139,45 @@ setup_common_user_bits() {
   info "Setting up common user directories and autostart bits for ${u}..."
   as_user "$u" "xdg-user-dirs-update || true"
 
-  # Ensure pipewire/wireplumber start from session (since no systemd user units)
+  # Ensure pipewire/wireplumber start from session using desktop-entry autostart.
   safe_mkdir "/home/${u}/.config"
   safe_mkdir "/home/${u}/.config/autostart"
 
-  cat > "/home/${u}/.config/autostart/pipewire.desktop" <<'EOF'
+  if [[ -f /usr/share/applications/pipewire.desktop ]]; then
+    ln -sfn /usr/share/applications/pipewire.desktop "/home/${u}/.config/autostart/pipewire.desktop"
+  else
+    cat > "/home/${u}/.config/autostart/pipewire.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=PipeWire
 Exec=pipewire
 X-GNOME-Autostart-enabled=true
 EOF
+  fi
 
-  cat > "/home/${u}/.config/autostart/wireplumber.desktop" <<'EOF'
+  if [[ -f /usr/share/applications/pipewire-pulse.desktop ]]; then
+    ln -sfn /usr/share/applications/pipewire-pulse.desktop "/home/${u}/.config/autostart/pipewire-pulse.desktop"
+  else
+    cat > "/home/${u}/.config/autostart/pipewire-pulse.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=PipeWire Pulse
+Exec=pipewire-pulse
+X-GNOME-Autostart-enabled=true
+EOF
+  fi
+
+  if [[ -f /usr/share/applications/wireplumber.desktop ]]; then
+    ln -sfn /usr/share/applications/wireplumber.desktop "/home/${u}/.config/autostart/wireplumber.desktop"
+  else
+    cat > "/home/${u}/.config/autostart/wireplumber.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=WirePlumber
 Exec=wireplumber
 X-GNOME-Autostart-enabled=true
 EOF
+  fi
 
   chown -R "${u}:${u}" "/home/${u}/.config/autostart"
 }
@@ -1858,7 +1878,6 @@ configure_session_files() {
       setup_wayland_session_desktop_file "niri" "${niri_exec}"
       ;;
     hyprland)
-      setup_hyprland_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
       local hypr_exec=""
       hypr_exec="$(write_hyprland_launcher_wrapper)"
       setup_wayland_session_desktop_file "Hyprland (experimental)" "${hypr_exec}"
@@ -1952,8 +1971,10 @@ main() {
   show_splashscreen
 
   info "Void auto setup starting (version ${SCRIPT_VERSION})"
-  xbps_install ca-certificates sudo || true
   xbps_sync
+  if [[ "$(detect_libc_flavor)" != "gnu" ]]; then
+    warn "This tutorial path assumes glibc. Steam and multilib support are best on x86_64 glibc."
+  fi
 
   local target_user seatstack de lm browser gpu want_flatpak="n" want_fastfetch="n"
   local want_fonts="y" session_kind launcher launcher_cmd want_wall_mgr="n" wall_mgr="none"
@@ -1993,7 +2014,7 @@ main() {
     fi
   fi
 
-  local steps=15
+  local steps=17
   if [[ "${want_flatpak}" == "y" ]]; then
     steps=$((steps + 1))
   fi
@@ -2020,6 +2041,8 @@ main() {
   fi
   progress_init "${steps}"
 
+  run_step "Full system update" xbps_full_update
+  run_step "Install bootstrap tools" install_bootstrap_tools
   run_step "Enable Void repos" enable_void_repos
   run_step "Install core services (dbus + seat stack + polkit)" install_core_services "$seatstack"
   run_step "Install PipeWire + Bluetooth" install_pipewire_bluetooth
