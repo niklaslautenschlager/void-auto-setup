@@ -289,7 +289,7 @@ install_hyprland_experimental() {
   # Install the tutorial's exact supporting stack where available.
   xbps_install_if_available \
     xorg-server-xwayland \
-    wofi mako alacritty \
+    wofi mako kitty \
     grim slurp wl-clipboard \
     polkit polkit-gnome \
     xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
@@ -514,7 +514,7 @@ install_bootstrap_tools() {
 # ---------------- audio/bluetooth ----------------
 install_pipewire_bluetooth() {
   info "Installing PipeWire + WirePlumber + Bluetooth stack..."
-  xbps_install pipewire wireplumber alsa-utils pavucontrol
+  xbps_install pipewire wireplumber pulseaudio-utils alsa-utils pavucontrol
 
   # Bluetooth + GUI manager
   xbps_install bluez blueman
@@ -675,11 +675,11 @@ choose_wallpaper_manager() { # session_kind -> manager id
 choose_waypaper_backend() { # session_kind -> backend id
   local kind="$1"
   if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nWaypaper backend (Wayland):\n  1) swaybg (stable default)\n  2) awww (or swww package fallback)\n  3) hyprpaper\n  4) mpvpaper\n  5) wallutils\nChoose'
+    local prompt=$'\nWaypaper backend (Wayland):\n  1) swaybg (stable default)\n  2) swww (Wayland-native)\n  3) hyprpaper\n  4) mpvpaper\n  5) wallutils\nChoose'
     local c
     c="$(read_default "${prompt}" "1")"
     case "$c" in
-      2) echo "awww" ;;
+      2) echo "swww" ;;
       3) echo "hyprpaper" ;;
       4) echo "mpvpaper" ;;
       5) echo "wallutils" ;;
@@ -701,8 +701,8 @@ choose_waypaper_backend() { # session_kind -> backend id
 install_waypaper_backend() { # backend id, session_kind
   local backend="$1" kind="$2"
   case "$backend" in
-    awww)
-      if ! xbps_install_first_available "Waypaper backend awww/swww" awww swww; then
+    awww|swww)
+      if ! xbps_install_first_available "Waypaper backend swww/awww" swww awww; then
         if [[ "$kind" == "wayland" ]]; then
           warn "Falling back to swaybg backend for Waypaper."
           xbps_install_if_available swaybg
@@ -727,6 +727,7 @@ install_waypaper_backend() { # backend id, session_kind
 }
 
 install_pipx_for_waypaper() {
+  xbps_install_if_available python3-pipx
   if have_cmd pipx; then
     info "pipx already installed."
     return 0
@@ -749,31 +750,25 @@ install_pipx_for_waypaper() {
   have_cmd pipx || die "pipx installation failed; cannot install Waypaper."
 }
 
-install_waypaper_with_pipx() {
-  if pipx install --help 2>/dev/null | grep -q -- "--global"; then
-    if pipx list --global 2>/dev/null | grep -q "package waypaper"; then
-      info "Waypaper already installed via pipx (global). Upgrading..."
-      pipx upgrade --global waypaper || true
-    else
-      pipx install --global waypaper
-    fi
+install_waypaper_with_pipx() { # target user
+  local u="$1"
+  info "Installing Waypaper into ${u}'s pipx environment..."
+  as_user "$u" "pipx ensurepath >/dev/null 2>&1 || true"
+  if as_user "$u" "pipx list 2>/dev/null | grep -q 'package waypaper'"; then
+    info "Waypaper already installed via pipx for ${u}. Upgrading..."
+    as_user "$u" "pipx upgrade waypaper || true"
   else
-    local -a pipx_env=(PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin PIPX_MAN_DIR=/usr/local/share/man)
-    if env "${pipx_env[@]}" pipx list 2>/dev/null | grep -q "package waypaper"; then
-      info "Waypaper already installed via pipx. Upgrading..."
-      env "${pipx_env[@]}" pipx upgrade waypaper || true
-    else
-      env "${pipx_env[@]}" pipx install waypaper
-    fi
+    as_user "$u" "pipx install waypaper"
   fi
 }
 
-install_waypaper_manager() { # session_kind, backend
-  local kind="$1" backend="$2"
+install_waypaper_manager() { # session_kind, backend, target user
+  local kind="$1" backend="$2" u="$3"
   info "Installing Waypaper and dependencies..."
 
   install_waypaper_backend "${backend}" "${kind}"
 
+  xbps_install base-devel pkg-config python3-devel cairo-devel gobject-introspection
   xbps_install_first_available "Python GObject bindings" python3-gobject python3-gi python-gobject || true
   xbps_install_first_available "python-imageio" python3-imageio python-imageio || true
   xbps_install_first_available "python-imageio-ffmpeg" python3-imageio-ffmpeg python-imageio-ffmpeg python3-imageio_ffmpeg python-imageio_ffmpeg || true
@@ -782,17 +777,17 @@ install_waypaper_manager() { # session_kind, backend
   xbps_install_if_available python3 python3-pip
 
   install_pipx_for_waypaper
-  install_waypaper_with_pipx
+  install_waypaper_with_pipx "${u}"
 }
 
-install_wallpaper_manager() { # manager id, session_kind, waypaper_backend
-  local manager="$1" kind="${2:-}" waypaper_backend="${3:-}"
+install_wallpaper_manager() { # manager id, session_kind, waypaper_backend, target user
+  local manager="$1" kind="${2:-}" waypaper_backend="${3:-}" u="${4:-}"
   case "${manager}" in
     nitrogen|azote)
       xbps_install_if_available "${manager}"
       ;;
     waypaper)
-      install_waypaper_manager "${kind}" "${waypaper_backend}"
+      install_waypaper_manager "${kind}" "${waypaper_backend}" "${u}"
       ;;
     none|"")
       ;;
@@ -1066,7 +1061,7 @@ install_de() {
     hyprland)
       info "Installing Hyprland base dependencies (Wayland)..."
       install_wayland_base
-      xbps_install_if_available foot swaybg grim slurp wl-clipboard
+      xbps_install_if_available kitty swaybg grim slurp wl-clipboard
       ;;
     sway)
       info "Installing sway (Wayland)..."
@@ -1139,9 +1134,10 @@ setup_common_user_bits() {
   info "Setting up common user directories and autostart bits for ${u}..."
   as_user "$u" "xdg-user-dirs-update || true"
 
-  # Ensure pipewire/wireplumber start from session using desktop-entry autostart.
+  # Ensure the PipeWire stack starts from the user session without systemd user units.
   safe_mkdir "/home/${u}/.config"
   safe_mkdir "/home/${u}/.config/autostart"
+  safe_mkdir "/home/${u}/.config/pipewire/pipewire.conf.d"
 
   if [[ -f /usr/share/applications/pipewire.desktop ]]; then
     ln -sfn /usr/share/applications/pipewire.desktop "/home/${u}/.config/autostart/pipewire.desktop"
@@ -1151,6 +1147,18 @@ setup_common_user_bits() {
 Type=Application
 Name=PipeWire
 Exec=pipewire
+X-GNOME-Autostart-enabled=true
+EOF
+  fi
+
+  if [[ -f /usr/share/applications/pipewire-pulse.desktop ]]; then
+    ln -sfn /usr/share/applications/pipewire-pulse.desktop "/home/${u}/.config/autostart/pipewire-pulse.desktop"
+  else
+    cat > "/home/${u}/.config/autostart/pipewire-pulse.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=PipeWire Pulse
+Exec=pipewire-pulse
 X-GNOME-Autostart-enabled=true
 EOF
   fi
@@ -1167,19 +1175,39 @@ X-GNOME-Autostart-enabled=true
 EOF
   fi
 
-  chown -R "${u}:${u}" "/home/${u}/.config/autostart"
+  if [[ -f /usr/share/examples/pipewire/20-pipewire-pulse.conf ]]; then
+    ln -sfn /usr/share/examples/pipewire/20-pipewire-pulse.conf "/home/${u}/.config/pipewire/pipewire.conf.d/20-pipewire-pulse.conf"
+  else
+    warn "PipeWire example config /usr/share/examples/pipewire/20-pipewire-pulse.conf not found."
+  fi
+
+  if [[ -f /usr/share/examples/wireplumber/10-wireplumber.conf ]]; then
+    ln -sfn /usr/share/examples/wireplumber/10-wireplumber.conf "/home/${u}/.config/pipewire/pipewire.conf.d/10-wireplumber.conf"
+  else
+    warn "WirePlumber example config /usr/share/examples/wireplumber/10-wireplumber.conf not found."
+  fi
+
+  chown "${u}:${u}" "/home/${u}/.config" "/home/${u}/.config/autostart" "/home/${u}/.config/pipewire" "/home/${u}/.config/pipewire/pipewire.conf.d"
+  chown -h "${u}:${u}" "/home/${u}/.config/autostart/pipewire.desktop" "/home/${u}/.config/autostart/pipewire-pulse.desktop" "/home/${u}/.config/autostart/wireplumber.desktop" 2>/dev/null || true
+  chown -h "${u}:${u}" "/home/${u}/.config/pipewire/pipewire.conf.d/20-pipewire-pulse.conf" "/home/${u}/.config/pipewire/pipewire.conf.d/10-wireplumber.conf" 2>/dev/null || true
 }
 
 setup_waypaper_restore_autostart() {
   local u="$1"
   info "Adding Waypaper restore autostart for ${u}..."
   safe_mkdir "/home/${u}/.config/autostart"
+  local waypaper_cmd="/home/${u}/.local/bin/waypaper"
+  if [[ ! -x "${waypaper_cmd}" ]]; then
+    waypaper_cmd="waypaper"
+  fi
   cat > "/home/${u}/.config/autostart/waypaper-restore.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Waypaper Restore
-Exec=waypaper --restore
-TryExec=waypaper
+EOF
+  printf "Exec=%s --restore\n" "${waypaper_cmd}" >>"/home/${u}/.config/autostart/waypaper-restore.desktop"
+  printf "TryExec=%s\n" "${waypaper_cmd}" >>"/home/${u}/.config/autostart/waypaper-restore.desktop"
+  cat >> "/home/${u}/.config/autostart/waypaper-restore.desktop" <<'EOF'
 X-GNOME-Autostart-enabled=true
 EOF
   chown "${u}:${u}" "/home/${u}/.config/autostart/waypaper-restore.desktop"
@@ -1452,8 +1480,13 @@ set -e
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=river
 
+# Export DBus activation env for portals/audio clients
+command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP || true
+command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --all || true
+
 # Start PipeWire / WirePlumber
 pgrep -x pipewire >/dev/null || pipewire &
+pgrep -x pipewire-pulse >/dev/null || pipewire-pulse &
 pgrep -x wireplumber >/dev/null || wireplumber &
 
 # Wallpaper
@@ -1504,9 +1537,12 @@ input {
 }
 
 spawn-at-startup "pipewire"
+spawn-at-startup "pipewire-pulse"
 spawn-at-startup "wireplumber"
 spawn-at-startup "blueman-applet"
 spawn-at-startup "Waybar"
+spawn-at-startup "sh" "-lc" "command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP || true"
+spawn-at-startup "sh" "-lc" "command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --all || true"
 EOF
   printf "spawn-at-startup \"swaybg -i %s -m fill\"\n\n" "${wallpaper_path}" >>"/home/${u}/.config/niri/config.kdl"
   cat >> "/home/${u}/.config/niri/config.kdl" <<'EOF'
@@ -1526,13 +1562,15 @@ EOF
 }
 
 setup_hyprland_config() {
-  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating Hyprland config for ${u} (experimental)..."
+  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}" wall_mgr="${4:-none}"
+  local waypaper_cmd="/home/${u}/.local/bin/waypaper"
+  info "Generating Hyprland config for ${u}..."
   safe_mkdir "/home/${u}/.config/hypr"
+  if [[ ! -x "${waypaper_cmd}" ]]; then
+    waypaper_cmd="waypaper"
+  fi
   cat >"/home/${u}/.config/hypr/hyprland.conf" <<'EOF'
-# generated hyprland config (minimal usable)
-
-monitor=,preferred,auto,auto
+# generated hyprland config
 
 input {
   kb_layout = us
@@ -1556,17 +1594,37 @@ misc {
   disable_hyprland_logo = 1
 }
 
-bind = SUPER, Return, exec, foot
+exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = dbus-update-activation-environment --all
+exec-once = pipewire &
+exec-once = pipewire-pulse &
+exec-once = wireplumber &
+exec-once = sleep 1 && /usr/libexec/xdg-desktop-portal-hyprland
+exec-once = sleep 2 && /usr/libexec/xdg-desktop-portal-gtk
+exec-once = waybar
+exec-once = blueman-applet
+
+bind = SUPER, Return, exec, kitty
 bind = SUPER, Q, killactive,
 bind = SUPER SHIFT, E, exit,
 EOF
   if [[ -n "${launcher_cmd}" ]]; then
     printf "bind = SUPER, D, exec, %s\n" "${launcher_cmd}" >>"/home/${u}/.config/hypr/hyprland.conf"
   fi
-  printf "exec-once = pipewire\nexec-once = wireplumber\n" >>"/home/${u}/.config/hypr/hyprland.conf"
-  printf "exec-once = swaybg -i %q -m fill\n" "${wallpaper_path}" >>"/home/${u}/.config/hypr/hyprland.conf"
-  printf "exec-once = blueman-applet\n" >>"/home/${u}/.config/hypr/hyprland.conf"
-  printf "exec-once = Waybar\n" >>"/home/${u}/.config/hypr/hyprland.conf"
+  if [[ "${wall_mgr}" == "waypaper" ]]; then
+    cat >>"/home/${u}/.config/hypr/hyprland.conf" <<'EOF'
+
+# Monitor Configuration
+# Format: monitor = name, res@hz, position, scale
+monitor = DP-1, 3840x2160@60, 0x0, 1.5
+monitor = DP-2, 3440x1440@144, 2560x0, 1
+EOF
+    printf "exec-once = swww-daemon\n" >>"/home/${u}/.config/hypr/hyprland.conf"
+    printf "exec-once = %s --restore\n" "${waypaper_cmd}" >>"/home/${u}/.config/hypr/hyprland.conf"
+  else
+    printf "monitor = , preferred, auto, auto\n" >>"/home/${u}/.config/hypr/hyprland.conf"
+    printf "exec-once = swaybg -i %q -m fill\n" "${wallpaper_path}" >>"/home/${u}/.config/hypr/hyprland.conf"
+  fi
 
   chown -R "${u}:${u}" "/home/${u}/.config/hypr"
 }
@@ -1605,7 +1663,10 @@ bindsym $mod+Shift+4 move container to workspace number 4
 bindsym $mod+Shift+5 move container to workspace number 5
 bindsym $mod+Shift+r reload
 
+exec_always --no-startup-id dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec_always --no-startup-id dbus-update-activation-environment --all
 exec pipewire
+exec pipewire-pulse
 exec wireplumber
 exec Waybar
 exec blueman-applet
@@ -1800,7 +1861,7 @@ EOF
 
 configure_session_files() {
   local de="$1" u="$2" lm="$3"
-  local launcher_cmd="${4:-}" wallpaper_path="${5:-${WALLPAPER_SYSTEM_PATH}}"
+  local launcher_cmd="${4:-}" wallpaper_path="${5:-${WALLPAPER_SYSTEM_PATH}}" wall_mgr="${6:-none}"
   case "$de" in
     i3)
       setup_i3_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
@@ -1866,8 +1927,12 @@ configure_session_files() {
       setup_wayland_session_desktop_file "niri" "${niri_exec}"
       ;;
     hyprland)
+      setup_hyprland_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}" "${wall_mgr}"
       local hypr_exec=""
       hypr_exec="$(write_hyprland_launcher_wrapper)"
+      if [[ "$lm" == "sddm" ]]; then
+        hypr_exec="dbus-run-session -- ${hypr_exec}"
+      fi
       setup_wayland_session_desktop_file "Hyprland (experimental)" "${hypr_exec}"
       ;;
     sway)
@@ -1929,7 +1994,7 @@ Done.
 
 Notes:
 - Services enabled (as applicable): dbus, elogind/seatd, bluetoothd, login-manager.
-- PipeWire/WirePlumber are started via user autostart entries (no systemd user units on Void).
+- PipeWire, pipewire-pulse, and WirePlumber are started via user autostart entries (no systemd user units on Void).
 - If you chose "none" for login manager, use:
     startx
   from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm/xfce/gnome/mate).
@@ -1998,7 +2063,12 @@ main() {
     want_wall_mgr="y"
     wall_mgr="$(choose_wallpaper_manager "${session_kind}")"
     if [[ "${wall_mgr}" == "waypaper" ]]; then
-      wallpaper_backend="$(choose_waypaper_backend "${session_kind}")"
+      if [[ "${de}" == "hyprland" ]]; then
+        wallpaper_backend="swww"
+        info "Hyprland + Waypaper uses the swww backend."
+      else
+        wallpaper_backend="$(choose_waypaper_backend "${session_kind}")"
+      fi
     fi
   fi
 
@@ -2056,7 +2126,7 @@ main() {
     run_step "Install file manager" install_file_manager "${file_manager}"
   fi
   if [[ "${want_wall_mgr}" == "y" && "${wall_mgr}" != "none" ]]; then
-    run_step "Install wallpaper manager" install_wallpaper_manager "${wall_mgr}" "${session_kind}" "${wallpaper_backend}"
+    run_step "Install wallpaper manager" install_wallpaper_manager "${wall_mgr}" "${session_kind}" "${wallpaper_backend}" "${target_user}"
   fi
   run_step "Install sample wallpaper" install_sample_wallpaper
 
@@ -2065,7 +2135,7 @@ main() {
   if [[ "${wall_mgr}" == "waypaper" ]]; then
     run_step "Configure Waypaper restore autostart" setup_waypaper_restore_autostart "$target_user"
   fi
-  run_step "Generate session/config files" configure_session_files "$de" "$target_user" "$lm" "${launcher_cmd}" "${WALLPAPER_SYSTEM_PATH}"
+  run_step "Generate session/config files" configure_session_files "$de" "$target_user" "$lm" "${launcher_cmd}" "${WALLPAPER_SYSTEM_PATH}" "${wall_mgr}"
 
   run_step "Install browser" install_browser "$browser"
 
