@@ -514,7 +514,7 @@ install_bootstrap_tools() {
 # ---------------- audio/bluetooth ----------------
 install_pipewire_bluetooth() {
   info "Installing PipeWire + WirePlumber + Bluetooth stack..."
-  xbps_install pipewire wireplumber pipewire-pulse alsa-utils pavucontrol
+  xbps_install pipewire wireplumber alsa-utils pavucontrol
 
   # Bluetooth + GUI manager
   xbps_install bluez blueman
@@ -1151,18 +1151,6 @@ setup_common_user_bits() {
 Type=Application
 Name=PipeWire
 Exec=pipewire
-X-GNOME-Autostart-enabled=true
-EOF
-  fi
-
-  if [[ -f /usr/share/applications/pipewire-pulse.desktop ]]; then
-    ln -sfn /usr/share/applications/pipewire-pulse.desktop "/home/${u}/.config/autostart/pipewire-pulse.desktop"
-  else
-    cat > "/home/${u}/.config/autostart/pipewire-pulse.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=PipeWire Pulse
-Exec=pipewire-pulse
 X-GNOME-Autostart-enabled=true
 EOF
   fi

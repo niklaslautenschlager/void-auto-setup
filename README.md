@@ -7,7 +7,7 @@ This script:
 - Runs a full first-boot system update (`xbps-install -Suy`) and installs `sudo`, `git`, `curl`, and `xtools`.
 - Enables Void repos (nonfree, multilib where available).
 - Installs core services: `dbus` plus either `elogind` or `seatd`, and `polkit`.
-- Sets up **PipeWire + WirePlumber** audio, including `pipewire-pulse`, `pavucontrol`, and XDG autostart entries.
+- Sets up **PipeWire + WirePlumber** audio, including `pavucontrol` and XDG autostart entries.
 - Installs Bluetooth (BlueZ + Blueman).
 - Installs GPU drivers (NVIDIA proprietary via nonfree, AMD/Intel via Mesa/Vulkan), and enables `nvidia_drm.modeset=1` in GRUB when NVIDIA is selected.
 - Lets you choose a desktop/WM: `i3`, `KDE Plasma`, `river`, `dwm`, `niri`, `Hyprland`, `sway`, `swayfx`, `awesome`, `herbstluftwm`, `XFCE`, `GNOME`, `MATE`.
@@ -133,7 +133,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
 ## What it installs (high‑level)
 
 - **Core**: `dbus`, `polkit`, `elogind` or `seatd`.
-- **Audio**: `pipewire`, `wireplumber`, `pipewire-pulse`, `alsa-utils`, `pavucontrol`, plus `libspa-bluetooth` when present.
+- **Audio**: `pipewire`, `wireplumber`, `alsa-utils`, `pavucontrol`, plus `libspa-bluetooth` when present.
 - **Bluetooth**: `bluez`, `blueman`, runit service `bluetoothd`.
 - **GPU**:
   - NVIDIA: `nvidia`, `nvidia-libs-32bit` (when available), and GRUB KMS enablement (`nvidia_drm.modeset=1`) when `/etc/default/grub` is present.
@@ -162,7 +162,7 @@ All prompts have a default value; pressing **Enter** keeps the default.
   - For X11 sessions created by this script (i3/dwm/Plasma/awesome/herbstluftwm/XFCE/GNOME/MATE), the session entrypoints are wrapped so the wallpaper is re-applied on each login/boot.
   - Optional wallpaper manager choices include `nitrogen`, `azote`, and `waypaper`.
   - If `waypaper` is selected, the script installs `pipx`, required Python deps (GObject/imageio/imageio-ffmpeg/screeninfo/platformdirs variants when available), one selected backend, and adds `waypaper --restore` autostart for the target user.
-  - PipeWire, `pipewire-pulse`, and WirePlumber autostart via `~/.config/autostart/` symlinks to packaged desktop entries when available.
+  - PipeWire and WirePlumber autostart via `~/.config/autostart/` symlinks to packaged desktop entries when available.
 
 Font installs are **repo-safe**: the script checks whether each font package exists in XBPS before attempting to install it, so missing font packages won't abort the run.
 
