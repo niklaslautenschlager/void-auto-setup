@@ -213,6 +213,13 @@ User‑level autostarts for PipeWire/`pipewire-pulse`/WirePlumber and Blueman ar
 ## Disclaimer
 
 See `DISCLAIMER.md` for a more explicit warning, assumptions, and "vibes coded" notes.
+See `PHILOSOPHY.md` for the project's motivation and personal context.
+
+---
+
+## License
+
+This project is licensed under the `0BSD` license. See `LICENSE`.
 
 ---
 
