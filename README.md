@@ -2,6 +2,17 @@
 
 Post-install setup script for a fresh **Void Linux (runit)** install.
 
+## Quick Start
+
+Clone the repo, enter the directory, make the installer executable, and run it as root:
+
+```bash
+git clone https://github.com/niklaslautenschlager/void-auto-setup.git
+cd void-auto-setup
+chmod +x void-auto-setup.sh
+sudo ./void-auto-setup.sh
+```
+
 This script:
 
 - Runs a full first-boot system update (`xbps-install -Suy`) and installs `sudo`, `git`, `curl`, and `xtools`.
