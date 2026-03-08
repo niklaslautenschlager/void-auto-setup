@@ -4,6 +4,11 @@ Post-install setup script for a fresh **Void Linux (runit)** install.
 
 ## Quick Start
 
+Update first:
+```bash
+sudo xbps-install -Syu
+```
+
 Clone the repo, enter the directory, make the installer executable, and run it as root:
 
 ```bash
@@ -52,11 +57,6 @@ The script assumes:
 ---
 
 ## How to run
-
-Update first:
-```bash
-sudo xbps-install -Syu
-```
 
 From this directory:
 
