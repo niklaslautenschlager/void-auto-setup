@@ -53,6 +53,11 @@ The script assumes:
 
 ## How to run
 
+Update first:
+```bash
+sudo xbps-install -Syu
+```
+
 From this directory:
 
 ```bash
