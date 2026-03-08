@@ -117,12 +117,14 @@ run_step() { # label, cmd...
 }
 
 show_splashscreen() {
-  local void_green reset underline
-  void_green="\033[38;2;70;185;54m"
-  reset="\033[0m"
-  underline="\033[4m"
+  clear
+  local g b i r
+  g="\033[38;2;70;185;54m"
+  b="\033[1m"
+  i="\033[3m"
+  r="\033[0m"
 
-  printf "\n${void_green}"
+  printf "\n${g}${b}"
   cat <<'EOF'
  __     ______ ___ ____    ___ _   _ ____ _____  _    _     _     _____ ____
  \ \   / / _ \_ _|  _ \  |_ _| \ | / ___|_   _|/ \  | |   | |   | ____|  _ \
@@ -130,7 +132,7 @@ show_splashscreen() {
    \ V /| |_| | || |_| |  | || |\  |___) || |/ ___ \| |___| |___| |___|  _ <
     \_/  \___/___|____/  |___|_| \_|____/ |_/_/   \_\_____|_____|_____|_| \_\
 EOF
-  printf "${void_green}${underline}Enter the void...${reset}\n\n"
+  printf "${g}${b}${i}Enter the void... (v${SCRIPT_VERSION})${r}\n\n"
 }
 
 require_root() {
@@ -398,13 +400,14 @@ choose_de() {
 }
 
 choose_login_manager() {
-  local prompt=$'\nLogin manager:\n  1) sddm (default, recommended for KDE and fine for others)\n  2) lightdm (GTK greeter)\n  3) greetd + tuigreet (simple, good for Wayland WMs)\n  4) none (startx/tty)\nChoose'
+  local prompt=$'\nLogin manager:\n  1) sddm (default, recommended for KDE and fine for others)\n  2) lightdm (GTK greeter)\n  3) greetd + tuigreet (simple, good for Wayland WMs)\n  4) ly (TUI, lightweight)\n  5) none (startx/tty)\nChoose'
   local c
   c="$(read_default "${prompt}" "1")"
   case "$c" in
     2) echo "lightdm" ;;
     3) echo "greetd" ;;
-    4) echo "none" ;;
+    4) echo "ly" ;;
+    5) echo "none" ;;
     *) echo "sddm" ;;
   esac
 }
@@ -463,19 +466,19 @@ enable_void_repos() {
   xbps_sync
 
   # nonfree
-  if xbps-query -R void-repo-nonfree >/dev/null 2>&1; then
+  if xbps_pkg_available void-repo-nonfree; then
     xbps_install void-repo-nonfree
   else
     warn "void-repo-nonfree not found in repos. NVIDIA proprietary may not be installable."
   fi
 
   if [[ "$arch" == "x86_64" ]]; then
-    if xbps-query -R void-repo-multilib >/dev/null 2>&1; then
+    if xbps_pkg_available void-repo-multilib; then
       xbps_install void-repo-multilib
     else
       warn "void-repo-multilib not found."
     fi
-    if xbps-query -R void-repo-multilib-nonfree >/dev/null 2>&1; then
+    if xbps_pkg_available void-repo-multilib-nonfree; then
       xbps_install void-repo-multilib-nonfree
     else
       warn "void-repo-multilib-nonfree not found."
@@ -546,13 +549,14 @@ install_flatpak() {
 install_dev_tools() {
   info "Installing development tools..."
   # base-devel includes gcc, make, etc.
-  xbps_install base-devel git curl wget ca-certificates pkg-config cmake ninja python3 python3-pip go rust cargo gdb strace
+  xbps_install base-devel git curl wget ca-certificates pkg-config cmake ninja \
+    python3 python3-pip nodejs go rust cargo gdb strace
   xbps_install_if_available neovim python3-gobject cairo cairo-devel
 }
 
 install_fastfetch() {
   info "Installing fastfetch (for the vibes)..."
-  if xbps-query -R fastfetch >/dev/null 2>&1; then
+  if xbps_pkg_available fastfetch; then
     xbps_install fastfetch
   else
     warn "fastfetch package not found in your repos; skipping."
@@ -938,11 +942,11 @@ install_gpu_drivers() {
       info "Installing AMD Mesa/Vulkan stack..."
       xbps_install mesa mesa-dri vulkan-loader
       # Prefer RADV (vulkan-radeon) if available
-      if xbps-query -R vulkan-radeon >/dev/null 2>&1; then
+      if xbps_pkg_available vulkan-radeon; then
         xbps_install vulkan-radeon
       fi
       if yes_no "Install AMDVLK (optional alternative Vulkan driver)?" "n"; then
-        if xbps-query -R amdvlk >/dev/null 2>&1; then
+        if xbps_pkg_available amdvlk; then
           xbps_install amdvlk
         else
           warn "amdvlk not found in repos."
@@ -991,6 +995,18 @@ EOF
       xbps_install greetd tuigreet
       enable_service greetd
       ;;
+    ly)
+      info "Installing Ly display manager..."
+      if ! xbps_pkg_available ly; then
+        warn "ly package not found in repos. Skipping."
+        return 0
+      fi
+      xbps_install ly
+      xbps_install_if_available brightnessctl
+      # Ly runs on TTY2 by default; disable getty there to avoid conflicts.
+      disable_service agetty-tty2
+      enable_service ly
+      ;;
     none)
       info "No login manager selected."
       ;;
@@ -1020,7 +1036,7 @@ install_de() {
       info "Installing KDE Plasma..."
       install_x11_base
       # Plasma meta packages vary; try a sensible set
-      if xbps-query -R kde5 >/dev/null 2>&1; then
+      if xbps_pkg_available kde5; then
         xbps_install kde5
       else
         xbps_install plasma-desktop konsole dolphin kdegraphics-thumbnailers
@@ -1051,7 +1067,7 @@ install_de() {
       info "Installing niri (Wayland)..."
       install_wayland_base
       # Package name can differ; attempt "niri"
-      if xbps-query -R niri >/dev/null 2>&1; then
+      if xbps_pkg_available niri; then
         xbps_install niri
       else
         warn "niri package not found in repos. You may need to build it from source."
@@ -1151,18 +1167,6 @@ X-GNOME-Autostart-enabled=true
 EOF
   fi
 
-  if [[ -f /usr/share/applications/pipewire-pulse.desktop ]]; then
-    ln -sfn /usr/share/applications/pipewire-pulse.desktop "/home/${u}/.config/autostart/pipewire-pulse.desktop"
-  else
-    cat > "/home/${u}/.config/autostart/pipewire-pulse.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=PipeWire Pulse
-Exec=pipewire-pulse
-X-GNOME-Autostart-enabled=true
-EOF
-  fi
-
   if [[ -f /usr/share/applications/wireplumber.desktop ]]; then
     ln -sfn /usr/share/applications/wireplumber.desktop "/home/${u}/.config/autostart/wireplumber.desktop"
   else
@@ -1188,7 +1192,7 @@ EOF
   fi
 
   chown "${u}:${u}" "/home/${u}/.config" "/home/${u}/.config/autostart" "/home/${u}/.config/pipewire" "/home/${u}/.config/pipewire/pipewire.conf.d"
-  chown -h "${u}:${u}" "/home/${u}/.config/autostart/pipewire.desktop" "/home/${u}/.config/autostart/pipewire-pulse.desktop" "/home/${u}/.config/autostart/wireplumber.desktop" 2>/dev/null || true
+  chown -h "${u}:${u}" "/home/${u}/.config/autostart/pipewire.desktop" "/home/${u}/.config/autostart/wireplumber.desktop" 2>/dev/null || true
   chown -h "${u}:${u}" "/home/${u}/.config/pipewire/pipewire.conf.d/20-pipewire-pulse.conf" "/home/${u}/.config/pipewire/pipewire.conf.d/10-wireplumber.conf" 2>/dev/null || true
 }
 
@@ -1486,7 +1490,6 @@ command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-act
 
 # Start PipeWire / WirePlumber
 pgrep -x pipewire >/dev/null || pipewire &
-pgrep -x pipewire-pulse >/dev/null || pipewire-pulse &
 pgrep -x wireplumber >/dev/null || wireplumber &
 
 # Wallpaper
@@ -1537,7 +1540,6 @@ input {
 }
 
 spawn-at-startup "pipewire"
-spawn-at-startup "pipewire-pulse"
 spawn-at-startup "wireplumber"
 spawn-at-startup "blueman-applet"
 spawn-at-startup "Waybar"
@@ -1597,7 +1599,6 @@ misc {
 exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec-once = dbus-update-activation-environment --all
 exec-once = pipewire &
-exec-once = pipewire-pulse &
 exec-once = wireplumber &
 exec-once = sleep 1 && /usr/libexec/xdg-desktop-portal-hyprland
 exec-once = sleep 2 && /usr/libexec/xdg-desktop-portal-gtk
@@ -1666,7 +1667,6 @@ bindsym $mod+Shift+r reload
 exec_always --no-startup-id dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec_always --no-startup-id dbus-update-activation-environment --all
 exec pipewire
-exec pipewire-pulse
 exec wireplumber
 exec Waybar
 exec blueman-applet
@@ -1977,7 +1977,7 @@ EOF
 install_browser() {
   local b="$1"
   info "Installing browser: ${b}"
-  if xbps-query -R "$b" >/dev/null 2>&1; then
+  if xbps_pkg_available "$b"; then
     xbps_install "$b"
   else
     warn "Browser package not found: ${b}. Installing firefox instead."
@@ -1993,8 +1993,8 @@ final_notes() {
 Done.
 
 Notes:
-- Services enabled (as applicable): dbus, elogind/seatd, bluetoothd, login-manager.
-- PipeWire, pipewire-pulse, and WirePlumber are started via user autostart entries (no systemd user units on Void).
+- Services enabled (as applicable): dbus, elogind/seatd, bluetoothd, login-manager (sddm/lightdm/greetd/ly).
+- PipeWire and WirePlumber are started via user autostart entries (no systemd user units on Void).
 - If you chose "none" for login manager, use:
     startx
   from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm/xfce/gnome/mate).
@@ -2033,6 +2033,7 @@ main() {
   local want_fonts="y" session_kind launcher launcher_cmd want_wall_mgr="n" wall_mgr="none"
   local wallpaper_backend="none"
   local file_manager="none"
+  local want_dev_tools="n"
   target_user="$(choose_target_user)"
   seatstack="$(choose_session_stack)"
   de="$(choose_de)"
@@ -2072,7 +2073,11 @@ main() {
     fi
   fi
 
-  local steps=17
+  if yes_no "Install development tools (base-devel, cmake, python3, rust, go, nodejs, gdb, etc.)?" "n"; then
+    want_dev_tools="y"
+  fi
+
+  local steps=16
   if [[ "${want_flatpak}" == "y" ]]; then
     steps=$((steps + 1))
   fi
@@ -2097,6 +2102,9 @@ main() {
   if [[ "${de}" == "hyprland" ]]; then
     steps=$((steps + 1))
   fi
+  if [[ "${want_dev_tools}" == "y" ]]; then
+    steps=$((steps + 1))
+  fi
   progress_init "${steps}"
 
   run_step "Full system update" xbps_full_update
@@ -2104,7 +2112,9 @@ main() {
   run_step "Enable Void repos" enable_void_repos
   run_step "Install core services (dbus + seat stack + polkit)" install_core_services "$seatstack"
   run_step "Install PipeWire + Bluetooth" install_pipewire_bluetooth
-  run_step "Install development tools" install_dev_tools
+  if [[ "${want_dev_tools}" == "y" ]]; then
+    run_step "Install development tools" install_dev_tools
+  fi
   if [[ "${want_fonts}" == "y" ]]; then
     run_step "Install common fonts" install_fonts
   fi
