@@ -1,12 +1,15 @@
-## Disclaimer / Vibes Notice
+## Disclaimer
 
-This repository contains `void-auto-setup.sh`, a **vibes‑coded** post‑install script for Void Linux (runit).
+This repository contains `void-auto-setup.sh`, a **vibe‑coded** post‑install script for Void Linux (runit).
+
+This is an opionated installer. It installs tools and other things i personally use. Feel free to fork and add / remove packages.
 
 It was written to automate a personal setup quickly, not as a polished, production‑grade installer.
 
 Some assets (like the included sample wallpaper at `wallpaper/sample.jpg`) are **AI-generated** purely as placeholders.
 
 If you select Hyprland, the script may add a third‑party XBPS repo (`Encoded14/void-extra`) as a workaround. This repository is not affiliated with Void, and this script is not affiliated with Hyprland.
+Your system may break. 
 
 ---
 
@@ -17,6 +20,7 @@ If you select Hyprland, the script may add a third‑party XBPS repo (`Encoded14
 - **It may break your system.** Misconfigured GPU drivers, login managers, or seat management can lead to no‑GUI boots or other unpleasantness.
 - **It targets fresh installs.** Running this on an already customized system may conflict with your existing configs or packages.
 - **It assumes runit Void.** On anything else, it is likely to fail in creative ways.
+- **Created for glibc first.** Glibc is the version of Void i use and thus the installer is suited for it. Musl support may come in the future.
 
 ---
 
@@ -24,6 +28,7 @@ If you select Hyprland, the script may add a third‑party XBPS repo (`Encoded14
 
 - **Read the script (`void-auto-setup.sh`) end‑to‑end.**  
   Make sure you understand what it installs, what services it enables, and which config files it writes.
+  Im not liable.
 - **Decide if the opinions match your own.**  
   If they don't, edit the script to fit your preferences first.
 - **Be prepared to debug.**  
