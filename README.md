@@ -4,12 +4,11 @@ Post-install setup script for a fresh **Void Linux (runit)** install.
 
 ## Quick Start
 
-Clone the repo, enter the directory, make the installer executable, and run it as root:
+Clone the repo, enter the directory, and run it as root:
 
 ```bash
 git clone https://github.com/niklaslautenschlager/void-auto-setup.git
 cd void-auto-setup
-chmod +x void-auto-setup.sh
 sudo ./void-auto-setup.sh
 ```
 
@@ -68,10 +67,10 @@ Once installed, the logo will be rendered in figlet’s font instead of the fall
 From this directory:
 
 ```bash
-sudo bash ./void-auto-setup.sh
+sudo ./void-auto-setup.sh
 ```
 
-Do **not** run it with `sh` or another shell; it relies on Bash features.
+The script uses `#!/usr/bin/env bash` and requires Bash — do **not** invoke it with `sh`.
 
 ---
 
