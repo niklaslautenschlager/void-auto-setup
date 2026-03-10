@@ -46,8 +46,20 @@ This script:
 
 The script assumes:
 
-- You're on a relatively standard Void install with `xbps-install` and runit.
+- You’re on a relatively standard Void install with `xbps-install` and runit.
 - Your main user account already exists (you’ll be asked for the username).
+
+### Optional: figlet (for a nicer splash screen)
+
+The startup logo is displayed using **figlet** if it is installed, and falls back to built-in Unicode block art if it is not. Figlet is not required to run the installer — it is purely cosmetic.
+
+To install it:
+
+```bash
+sudo xbps-install figlet
+```
+
+Once installed, the logo will be rendered in figlet’s font instead of the fallback block art.
 
 ---
 

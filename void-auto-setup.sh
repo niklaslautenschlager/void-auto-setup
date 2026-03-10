@@ -118,21 +118,52 @@ run_step() { # label, cmd...
 
 show_splashscreen() {
   clear
-  local g b i r
+  local g b it r
   g="\033[38;2;70;185;54m"
   b="\033[1m"
-  i="\033[3m"
+  it="\033[3m"
   r="\033[0m"
 
   printf "\n${g}${b}"
+
+  if have_cmd figlet; then
+    # Use figlet if available; try fonts in order of preference
+    local art=""
+    for font in big banner standard ""; do
+      if [[ -n "$font" ]]; then
+        art="$(figlet -f "$font" "VOID INSTALLER" 2>/dev/null)" && break
+      else
+        art="$(figlet "VOID INSTALLER" 2>/dev/null)" && break
+      fi
+    done
+    if [[ -n "$art" ]]; then
+      printf "%s\n" "$art"
+    else
+      _splashscreen_fallback
+    fi
+  else
+    _splashscreen_fallback
+  fi
+
+  printf "${g}${b}${it}Enter the void... (v${SCRIPT_VERSION})${r}\n\n"
+}
+
+_splashscreen_fallback() {
   cat <<'EOF'
- __     ______ ___ ____    ___ _   _ ____ _____  _    _     _     _____ ____
- \ \   / / _ \_ _|  _ \  |_ _| \ | / ___|_   _|/ \  | |   | |   | ____|  _ \
-  \ \ / / | | | || | | |  | ||  \| \___ \ | | / _ \ | |   | |   |  _| | |_) |
-   \ V /| |_| | || |_| |  | || |\  |___) || |/ ___ \| |___| |___| |___|  _ <
-    \_/  \___/___|____/  |___|_| \_|____/ |_/_/   \_\_____|_____|_____|_| \_\
+██╗   ██╗  ██████╗  ██╗██████╗
+██║   ██║ ██╔═══██╗ ██║██╔══██╗
+██║   ██║ ██║   ██║ ██║██║  ██║
+╚██╗ ██╔╝ ██║   ██║ ██║██║  ██║
+ ╚████╔╝  ╚██████╔╝ ██║██████╔╝
+  ╚═══╝    ╚═════╝  ╚═╝╚═════╝
+
+ ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗     ██╗     ███████╗██████╗
+ ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗
+ ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝
+ ██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗
+ ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║
+ ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝  ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
 EOF
-  printf "${g}${b}${i}Enter the void... (v${SCRIPT_VERSION})${r}\n\n"
 }
 
 require_root() {
