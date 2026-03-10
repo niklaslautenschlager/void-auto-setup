@@ -1,0 +1,76 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Mako Config — Frutiger Aero Notifications                     ║
+# ║  Frosted glass bubbles with sky-blue glow                       ║
+# ║  Place at ~/.config/mako/config                                 ║
+# ║  Add to hyprland autostart:  exec-once = mako                   ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# ── Positioning ───────────────────────────────────────────────────
+anchor=top-right
+layer=overlay
+
+# ── Geometry ──────────────────────────────────────────────────────
+width=340
+height=120
+margin=10,10,0,0
+padding=14,18,14,18
+border-radius=14
+max-visible=4
+sort=-time
+
+# ── Aero Glass Background ────────────────────────────────────────
+# Deep ocean blue, translucent — wallpaper bleeds through
+# Pair with Hyprland layerrule:
+#   layerrule = blur, notifications
+#   layerrule = ignorealpha 0.3, notifications
+background-color=#0c2444d6
+
+# ── Glass Edge Border — sky-blue glow ────────────────────────────
+border-size=1
+border-color=#38bdf866
+
+# ── Typography ────────────────────────────────────────────────────
+font=Segoe UI 11
+text-color=#e0f2fe
+
+# ── Timing ────────────────────────────────────────────────────────
+default-timeout=6000
+ignore-timeout=0
+
+# ── Icons ─────────────────────────────────────────────────────────
+icon-path=/usr/share/icons
+max-icon-size=48
+
+# ── Grouping ──────────────────────────────────────────────────────
+group-by=app-name
+
+# ── Actions ───────────────────────────────────────────────────────
+on-button-left=invoke-default-action
+on-button-right=dismiss
+on-button-middle=dismiss-all
+
+# ═══════════════════════════════════════════════════════════════════
+# URGENCY OVERRIDES
+# Low = subtle, normal = standard glass, critical = glowing amber
+# ═══════════════════════════════════════════════════════════════════
+
+[urgency=low]
+background-color=#0c2444b3
+border-color=#38bdf833
+text-color=#94a3b8
+default-timeout=3000
+
+[urgency=normal]
+background-color=#0c2444d6
+border-color=#38bdf866
+text-color=#e0f2fe
+
+[urgency=critical]
+background-color=#1c1917e6
+border-color=#fbbf24aa
+text-color=#fef3c7
+default-timeout=0
+
+# ── Grouped notification style ────────────────────────────────────
+[grouped]
+format=<b>%s</b>\n%b  <small>(%g more)</small>

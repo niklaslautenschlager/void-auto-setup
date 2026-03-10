@@ -1,0 +1,475 @@
+/* ╔══════════════════════════════════════════════════════════════════╗
+ * ║  Waybar Stylesheet — Frutiger Aero                             ║
+ * ║                                                                 ║
+ * ║  NO @keyframes — waybar GTK3 does not support them reliably.   ║
+ * ║  All effects are static gradients, shadows, and transitions.    ║
+ * ║                                                                 ║
+ * ║  Palette:                                                       ║
+ * ║    Sky Blue     #7dd3fc / #38bdf8                               ║
+ * ║    Aqua Cyan    #22d3ee / #06b6d4                               ║
+ * ║    Glass White  rgba(255,255,255, 0.08–0.25)                    ║
+ * ║    Grass Green  #4ade80 / #22c55e                               ║
+ * ║    Warn Amber   #fbbf24                                         ║
+ * ║    Crit Red     #f87171                                         ║
+ * ╚══════════════════════════════════════════════════════════════════╝ */
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §1  GLOBAL BAR — floating Aero Glass panel
+ * ═══════════════════════════════════════════════════════════════════ */
+
+* {
+    font-family:  "LowerPixel",sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: #e0f2fe;
+    min-height: 0;
+}
+
+window#waybar {
+    /* ── AERO GLASS ──
+     * Semi-transparent deep blue. Pair with Hyprland layerrules:
+     *   layerrule = blur,                waybar
+     *   layerrule = ignorealpha 0.3,     waybar                      */
+    background: rgba(8, 25, 52, 0.55);
+
+    /* ── FLOATING DROPSHADOW ── */
+    box-shadow:
+        0 2px 8px  rgba(0, 0, 0, 0.45),
+        0 6px 24px rgba(0, 0, 0, 0.25);
+
+    /* ── GLASS EDGE ── */
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+
+    transition: all 0.3s ease;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §2  SHARED GEL-PILL BASE
+ *
+ * linear-gradient "shine line" at 48%→52%  = gloss highlight
+ * inset box-shadow top bright / bottom dark = 3D bevel
+ * border rgba white = thin glass edge
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#workspaces button,
+#custom-start,
+#clock,
+#mpris,
+#bluetooth,
+#custom-uptime,
+#pulseaudio,
+#battery,
+#custom-wlogout {
+    padding: 0 14px;
+    margin: 4px 3px;
+    border-radius: 10px;
+    border: none;
+    transition: all 0.25s ease;
+}
+
+/* Gel-pill for main modules */
+#clock,
+#bluetooth,
+#mpris,
+#custom-uptime,
+#pulseaudio,
+#battery {
+    /* ── GEL GRADIENT ──
+     * Top = sky-blue highlight (overhead light on glass)
+     * 48%→52% = the "shine line" break
+     * Bottom = deep cyan base                                         */
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.28) 0%,
+        rgba(125, 211, 252, 0.12) 48%,
+        rgba(8,  145, 178, 0.18)  52%,
+        rgba(8,  145, 178, 0.10)  100%
+    );
+
+    /* ── 3D BEVEL ── */
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.35),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.15),
+        0 1px 4px rgba(0, 0, 0, 0.2);
+
+    /* ── GLASS EDGE ── */
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §3  START BUTTON — Vista/7 glowing orb
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#custom-start {
+    font-size: 18px;
+    padding: 0 12px;
+    margin-left: 4px;
+    color: #ffffff;
+
+    /* ── ORB: radial gradient = lit glass sphere ── */
+    background: radial-gradient(
+        circle at 50% 35%,
+        rgba(56, 189, 248, 0.65) 0%,
+        rgba(14, 165, 233, 0.50) 40%,
+        rgba(3,  105, 161, 0.45) 70%,
+        rgba(7,  89,  133, 0.35) 100%
+    );
+
+    box-shadow:
+        inset 0  1px 1px rgba(255, 255, 255, 0.45),
+        inset 0 -1px 1px rgba(0,   0,   0,   0.20),
+        0 0 10px rgba(56, 189, 248, 0.35),
+        0 2px 6px rgba(0, 0, 0, 0.25);
+
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    border-radius: 10px;
+}
+
+#custom-start:hover {
+    background: radial-gradient(
+        circle at 50% 35%,
+        rgba(125, 211, 252, 0.80) 0%,
+        rgba(56,  189, 248, 0.60) 40%,
+        rgba(14,  165, 233, 0.50) 70%,
+        rgba(3,   105, 161, 0.40) 100%
+    );
+    box-shadow:
+        inset 0  1px 1px rgba(255, 255, 255, 0.55),
+        inset 0 -1px 1px rgba(0,   0,   0,   0.15),
+        0 0 16px rgba(56, 189, 248, 0.55),
+        0 0 30px rgba(56, 189, 248, 0.15),
+        0 2px 6px rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.45);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §4  WORKSPACES — numbered glowing pills
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#workspaces {
+    background: transparent;
+    margin: 0 4px;
+}
+
+#workspaces button {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 10px;
+    margin: 4px 2px;
+    min-width: 28px;
+    border-radius: 10px;
+    color: rgba(186, 230, 253, 0.70);
+
+    /* ── INACTIVE: dim frosted glass ── */
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.10) 0%,
+        rgba(255, 255, 255, 0.03) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.15),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.10);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    transition: all 0.25s ease;
+}
+
+#workspaces button:hover {
+    color: #e0f2fe;
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.22) 0%,
+        rgba(56,  189, 248, 0.10) 48%,
+        rgba(14,  165, 233, 0.14) 52%,
+        rgba(14,  165, 233, 0.08) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.30),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.12),
+        0 0 8px rgba(56, 189, 248, 0.20);
+    border-color: rgba(255, 255, 255, 0.20);
+}
+
+#workspaces button.active {
+    /* ── ACTIVE: bright aqua gel orb ── */
+    color: #ffffff;
+    font-weight: 700;
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.50) 0%,
+        rgba(56,  189, 248, 0.30) 48%,
+        rgba(6,   182, 212, 0.35) 52%,
+        rgba(8,   145, 178, 0.25) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.50),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.12),
+        0 0 10px rgba(34, 211, 238, 0.40),
+        0 0 20px rgba(34, 211, 238, 0.12),
+        0 1px 4px rgba(0, 0, 0, 0.20);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+#workspaces button.urgent {
+    color: #fef3c7;
+    background: linear-gradient(
+        180deg,
+        rgba(251, 191, 36, 0.45) 0%,
+        rgba(245, 158, 11, 0.25) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.40),
+        0 0 12px rgba(251, 191, 36, 0.45);
+    border-color: rgba(251, 191, 36, 0.40);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §5  CLOCK — single module, pixel font throughout
+ *
+ * Install one of these pixel fonts:
+ *   sudo pacman -S ttf-cozette
+ *   yay -S ttf-pixelmix
+ *   yay -S ttf-scientifica
+ *
+ * Shows time normally; click to expand into full date string.
+ * Hover shows calendar tooltip.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#clock {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.8px;
+    color: #ffffff;
+    padding: 0 18px;
+
+    /* ── GLOWING TEXT ── */
+    text-shadow:
+        0 0  4px rgba(125, 211, 252, 0.60),
+        0 0 10px rgba(56,  189, 248, 0.25);
+}
+
+#clock:hover {
+    text-shadow:
+        0 0  6px rgba(125, 211, 252, 0.80),
+        0 0 14px rgba(56,  189, 248, 0.35);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §6b BLUETOOTH
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#bluetooth {
+    color: #67e8f9;
+}
+
+#bluetooth.connected {
+    color: #38bdf8;
+    text-shadow:
+        0 0  4px rgba(56, 189, 248, 0.70),
+        0 0 10px rgba(56, 189, 248, 0.30);
+}
+
+#bluetooth.disabled,
+#bluetooth.off {
+    color: rgba(186, 230, 253, 0.30);
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(255, 255, 255, 0.02) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.10),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.08);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §6c UPTIME
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#custom-uptime {
+    color: #a5f3fc;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §7  PULSEAUDIO
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#pulseaudio {
+    color: #67e8f9;
+}
+
+/* Shared hover for right-side gel pills */
+#pulseaudio:hover,
+#battery:hover,
+#bluetooth:hover,
+#custom-uptime:hover {
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.38) 0%,
+        rgba(125, 211, 252, 0.18) 48%,
+        rgba(8,  145, 178, 0.24)  52%,
+        rgba(8,  145, 178, 0.14)  100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.12),
+        0 0 8px rgba(56, 189, 248, 0.25),
+        0 2px 6px rgba(0, 0, 0, 0.20);
+    border-color: rgba(255, 255, 255, 0.30);
+}
+
+#pulseaudio.muted {
+    color: rgba(186, 230, 253, 0.35);
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.06) 0%,
+        rgba(255, 255, 255, 0.02) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.08);
+    border-color: rgba(255, 255, 255, 0.10);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §7  BATTERY — state-based gel color shifts (no keyframes)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#battery {
+    color: #7dd3fc;
+}
+
+#battery.charging,
+#battery.plugged {
+    /* ── CHARGING: grass green gel ── */
+    color: #4ade80;
+    background: linear-gradient(
+        180deg,
+        rgba(74, 222, 128, 0.28) 0%,
+        rgba(74, 222, 128, 0.12) 48%,
+        rgba(34, 197,  94, 0.18) 52%,
+        rgba(34, 197,  94, 0.10) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.35),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.12),
+        0 0 6px rgba(74, 222, 128, 0.25),
+        0 1px 4px rgba(0, 0, 0, 0.18);
+    border-color: rgba(74, 222, 128, 0.30);
+}
+
+#battery.warning:not(.charging) {
+    color: #fbbf24;
+    background: linear-gradient(
+        180deg,
+        rgba(251, 191, 36, 0.25) 0%,
+        rgba(251, 191, 36, 0.10) 48%,
+        rgba(245, 158, 11, 0.15) 52%,
+        rgba(245, 158, 11, 0.08) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.30),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.10),
+        0 0 6px rgba(251, 191, 36, 0.20),
+        0 1px 4px rgba(0, 0, 0, 0.18);
+    border-color: rgba(251, 191, 36, 0.25);
+}
+
+#battery.critical:not(.charging) {
+    /* ── CRITICAL: static red glow ── */
+    color: #f87171;
+    background: linear-gradient(
+        180deg,
+        rgba(248, 113, 113, 0.30) 0%,
+        rgba(248, 113, 113, 0.12) 48%,
+        rgba(220,  38,  38, 0.18) 52%,
+        rgba(220,  38,  38, 0.10) 100%
+    );
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.30),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.10),
+        0 0 12px rgba(248, 113, 113, 0.45),
+        0 1px 4px rgba(0, 0, 0, 0.20);
+    border-color: rgba(248, 113, 113, 0.30);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §8  WLOGOUT BUTTON — power orb, sits inside the bar
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#custom-wlogout {
+    font-size: 16px;
+    padding: 0 12px;
+    /* Pulled inward so it doesn't overhang the rounded bar edge */
+    margin: 4px 6px 4px 3px;
+    color: #fca5a5;
+
+    /* ── POWER ORB: warm-tinted glass sphere ── */
+    background: radial-gradient(
+        circle at 50% 35%,
+        rgba(248, 113, 113, 0.40) 0%,
+        rgba(220,  38,  38, 0.25) 50%,
+        rgba(153,  27,  27, 0.20) 100%
+    );
+
+    box-shadow:
+        inset 0  1px 1px rgba(255, 255, 255, 0.35),
+        inset 0 -1px 1px rgba(0,   0,   0,   0.20),
+        0 0 8px rgba(248, 113, 113, 0.20),
+        0 2px 6px rgba(0, 0, 0, 0.25);
+
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: 10px;
+}
+
+#custom-wlogout:hover {
+    color: #ffffff;
+    background: radial-gradient(
+        circle at 50% 35%,
+        rgba(252, 165, 165, 0.65) 0%,
+        rgba(248, 113, 113, 0.45) 50%,
+        rgba(220,  38,  38, 0.35) 100%
+    );
+    box-shadow:
+        inset 0  1px 1px rgba(255, 255, 255, 0.50),
+        inset 0 -1px 1px rgba(0,   0,   0,   0.15),
+        0 0 16px rgba(248, 113, 113, 0.45),
+        0 0 30px rgba(248, 113, 113, 0.12),
+        0 2px 6px rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+ * §9  TOOLTIP — frosted glass popup
+ * ═══════════════════════════════════════════════════════════════════ */
+
+tooltip {
+    background: rgba(8, 25, 52, 0.75);
+    border: 1px solid rgba(125, 211, 252, 0.30);
+    border-radius: 10px;
+    padding: 6px 12px;
+    box-shadow:
+        0 4px 16px rgba(0, 0, 0, 0.40),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+tooltip label {
+    color: #e0f2fe;
+    text-shadow: 0 0 4px rgba(125, 211, 252, 0.30);
+}

@@ -1,0 +1,156 @@
+/* ╔══════════════════════════════════════════════════════════════════╗
+ * ║  Wlogout Stylesheet — Frutiger Aero                            ║
+ * ║  Frosted glass overlay, glossy gel buttons, glowing hovers      ║
+ * ╚══════════════════════════════════════════════════════════════════╝ */
+
+/* ── BACKGROUND OVERLAY — dark frosted glass ── */
+window {
+    font-family: "Segoe UI", "Cantarell", "Noto Sans", sans-serif;
+    background-color: rgba(4, 15, 35, 0.65);
+    color: #e0f2fe;
+}
+
+/* ── ALL BUTTONS — Aero gel pill base ── */
+button {
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.22) 0%,
+        rgba(125, 211, 252, 0.08) 48%,
+        rgba(8,  145, 178, 0.14)  52%,
+        rgba(8,  145, 178, 0.08)  100%
+    );
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    margin: 10px;
+    padding: 10px;
+
+    /* 3D bevel + dropshadow */
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.30),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.12),
+        0 4px 12px rgba(0, 0, 0, 0.30);
+
+    color: #bae6fd;
+    text-shadow: 0 0 4px rgba(125, 211, 252, 0.40);
+    font-size: 14px;
+    transition: all 0.3s ease;
+
+    /* Icon sizing — place your icons in ~/.config/wlogout/icons/ */
+    background-repeat: no-repeat;
+    background-position: center 30%;
+    background-size: 48px;
+}
+
+/* ── HOVER — intensified gel glow ── */
+button:hover {
+    background-color: transparent;
+    background-image:
+        linear-gradient(
+            180deg,
+            rgba(125, 211, 252, 0.40) 0%,
+            rgba(125, 211, 252, 0.20) 48%,
+            rgba(6,  182, 212, 0.28)  52%,
+            rgba(8,  145, 178, 0.18)  100%
+        );
+    border-color: rgba(255, 255, 255, 0.40);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.50),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.08),
+        0 0 14px rgba(56, 189, 248, 0.40),
+        0 0 30px rgba(56, 189, 248, 0.12),
+        0 4px 12px rgba(0, 0, 0, 0.25);
+    color: #ffffff;
+    text-shadow:
+        0 0 6px rgba(125, 211, 252, 0.70),
+        0 0 14px rgba(56,  189, 248, 0.30);
+}
+
+/* ── FOCUS (keyboard selection) ── */
+button:focus {
+    outline: none;
+    border-color: rgba(125, 211, 252, 0.50);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        0 0 12px rgba(56, 189, 248, 0.35);
+}
+
+/* ── ACTIVE (click) — pressed glass ── */
+button:active {
+    background: linear-gradient(
+        180deg,
+        rgba(8,  145, 178, 0.20)  0%,
+        rgba(125, 211, 252, 0.14) 48%,
+        rgba(125, 211, 252, 0.18) 52%,
+        rgba(125, 211, 252, 0.10) 100%
+    );
+    box-shadow:
+        inset 0  2px 4px rgba(0, 0, 0, 0.20),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.10);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Per-button color accents
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Lock — cool blue (default, no override needed) */
+
+/* Shutdown — warm red tint */
+#shutdown {
+    border-color: rgba(248, 113, 113, 0.25);
+}
+#shutdown:hover {
+    background-image:
+        linear-gradient(
+            180deg,
+            rgba(252, 165, 165, 0.35) 0%,
+            rgba(248, 113, 113, 0.18) 48%,
+            rgba(220,  38,  38, 0.22) 52%,
+            rgba(220,  38,  38, 0.12) 100%
+        );
+    border-color: rgba(248, 113, 113, 0.45);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        0 0 14px rgba(248, 113, 113, 0.35),
+        0 4px 12px rgba(0, 0, 0, 0.25);
+    color: #fecaca;
+}
+
+/* Reboot — amber tint */
+#reboot {
+    border-color: rgba(251, 191, 36, 0.20);
+}
+#reboot:hover {
+    background-image:
+        linear-gradient(
+            180deg,
+            rgba(253, 224, 71, 0.30) 0%,
+            rgba(251, 191, 36, 0.15) 48%,
+            rgba(245, 158, 11, 0.20) 52%,
+            rgba(245, 158, 11, 0.10) 100%
+        );
+    border-color: rgba(251, 191, 36, 0.40);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        0 0 14px rgba(251, 191, 36, 0.30),
+        0 4px 12px rgba(0, 0, 0, 0.25);
+    color: #fef3c7;
+}
+
+/* Logout — green tint (fresh start) */
+#logout:hover {
+    background-image:
+        linear-gradient(
+            180deg,
+            rgba(74, 222, 128, 0.30) 0%,
+            rgba(74, 222, 128, 0.14) 48%,
+            rgba(34, 197,  94, 0.20) 52%,
+            rgba(34, 197,  94, 0.10) 100%
+        );
+    border-color: rgba(74, 222, 128, 0.40);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        0 0 14px rgba(74, 222, 128, 0.30),
+        0 4px 12px rgba(0, 0, 0, 0.25);
+    color: #bbf7d0;
+}

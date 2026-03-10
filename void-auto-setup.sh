@@ -310,6 +310,36 @@ enable_void_extra_repo() {
   xbps-install -S >/dev/null || true
 }
 
+deploy_hyprland_dotfiles() { # target_user
+  local u="$1"
+  local dotfiles_src="${SCRIPT_DIR}/dotfiles/hyprland"
+
+  if [[ ! -d "${dotfiles_src}" ]]; then
+    warn "Hyprland dotfiles directory not found at ${dotfiles_src}. Skipping."
+    return 0
+  fi
+
+  info "Deploying Hyprland dotfiles for ${u}..."
+
+  local dirs=(hypr kitty waybar wofi mako wlogout fastfetch cava)
+  for d in "${dirs[@]}"; do
+    local src="${dotfiles_src}/${d}"
+    local dst="/home/${u}/.config/${d}"
+    if [[ -d "${src}" ]]; then
+      safe_mkdir "${dst}"
+      cp -r "${src}/." "${dst}/"
+      chown -R "${u}:${u}" "${dst}"
+      info "Deployed ~/.config/${d}"
+    fi
+  done
+
+  # Make waybar weather script executable if present
+  local weather="/home/${u}/.config/waybar/scripts/weather.sh"
+  if [[ -f "${weather}" ]]; then
+    chmod 0755 "${weather}"
+  fi
+}
+
 install_hyprland_experimental() {
   info "Installing Hyprland (EXPERIMENTAL/BETA) from void-extra..."
   enable_void_extra_repo
@@ -325,7 +355,8 @@ install_hyprland_experimental() {
     wofi mako kitty \
     grim slurp wl-clipboard \
     polkit polkit-gnome \
-    xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
+    xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk \
+    hyprland-guiutils
   xbps_install_first_available "Waybar" Waybar waybar || true
   ensure_waybar_launcher
 }
@@ -2065,6 +2096,7 @@ main() {
   local wallpaper_backend="none"
   local file_manager="none"
   local want_dev_tools="n"
+  local want_hypr_dotfiles="n"
   target_user="$(choose_target_user)"
   seatstack="$(choose_session_stack)"
   de="$(choose_de)"
@@ -2108,6 +2140,12 @@ main() {
     want_dev_tools="y"
   fi
 
+  if [[ "${de}" == "hyprland" ]] && [[ -d "${SCRIPT_DIR}/dotfiles/hyprland" ]]; then
+    if yes_no "Deploy bundled Hyprland dotfiles (hypr, waybar, wofi, kitty, mako, wlogout, fastfetch, cava)?" "y"; then
+      want_hypr_dotfiles="y"
+    fi
+  fi
+
   local steps=16
   if [[ "${want_flatpak}" == "y" ]]; then
     steps=$((steps + 1))
@@ -2134,6 +2172,9 @@ main() {
     steps=$((steps + 1))
   fi
   if [[ "${want_dev_tools}" == "y" ]]; then
+    steps=$((steps + 1))
+  fi
+  if [[ "${want_hypr_dotfiles}" == "y" ]]; then
     steps=$((steps + 1))
   fi
   progress_init "${steps}"
@@ -2177,6 +2218,9 @@ main() {
     run_step "Configure Waypaper restore autostart" setup_waypaper_restore_autostart "$target_user"
   fi
   run_step "Generate session/config files" configure_session_files "$de" "$target_user" "$lm" "${launcher_cmd}" "${WALLPAPER_SYSTEM_PATH}" "${wall_mgr}"
+  if [[ "${want_hypr_dotfiles}" == "y" ]]; then
+    run_step "Deploy Hyprland dotfiles" deploy_hyprland_dotfiles "$target_user"
+  fi
 
   run_step "Install browser" install_browser "$browser"
 

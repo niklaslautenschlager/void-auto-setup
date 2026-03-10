@@ -1,0 +1,113 @@
+/* ╔══════════════════════════════════════════════════════════════════╗
+ * ║  Wofi Stylesheet — Frutiger Aero                               ║
+ * ║  Less translucent, lighter sky-blue matching the waybar.        ║
+ * ╚══════════════════════════════════════════════════════════════════╝ */
+
+/* ── OUTER WINDOW — Aero Glass, less see-through ── */
+window {
+    background-color: rgba(12, 36, 68, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 16px;
+    box-shadow:
+        0 4px 16px rgba(0, 0, 0, 0.50),
+        0 12px 40px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    font-family: "Lower Pixel", sans-serif;
+    color: #e0f2fe;
+}
+
+/* ── SEARCH INPUT — lighter sky-blue glass bar ── */
+#input {
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.25) 0%,
+        rgba(125, 211, 252, 0.12) 48%,
+        rgba(56,  189, 248, 0.16) 52%,
+        rgba(56,  189, 248, 0.08) 100%
+    );
+    border: 1px solid rgba(125, 211, 252, 0.40);
+    border-radius: 12px;
+    padding: 10px 16px;
+    margin: 12px 12px 8px 12px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.35),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.10),
+        0 0 10px rgba(56, 189, 248, 0.22);
+
+    text-shadow: 0 0 4px rgba(125, 211, 252, 0.40);
+}
+
+#input:focus {
+    border-color: rgba(125, 211, 252, 0.60);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.08),
+        0 0 16px rgba(56, 189, 248, 0.38);
+}
+
+/* ── RESULTS OUTER ── */
+#outer-box {
+    margin: 0 8px 8px 8px;
+    padding: 4px;
+}
+
+#scroll {
+    margin: 0;
+    padding: 0;
+}
+
+/* ── ENTRY ROWS ── */
+#entry {
+    padding: 8px 14px;
+    margin: 2px 4px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+#entry:nth-child(odd) {
+    background: rgba(125, 211, 252, 0.04);
+}
+
+#entry:nth-child(even) {
+    background: rgba(125, 211, 252, 0.02);
+}
+
+/* ── SELECTED / HOVER — full gel treatment, lighter blue ── */
+#entry:selected,
+#entry:hover {
+    background: linear-gradient(
+        180deg,
+        rgba(125, 211, 252, 0.32) 0%,
+        rgba(125, 211, 252, 0.16) 48%,
+        rgba(56,  189, 248, 0.20) 52%,
+        rgba(56,  189, 248, 0.12) 100%
+    );
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow:
+        inset 0  1px 0 rgba(255, 255, 255, 0.38),
+        inset 0 -1px 0 rgba(0,   0,   0,   0.10),
+        0 0 8px rgba(56, 189, 248, 0.22);
+}
+
+#entry:selected #text,
+#entry:hover #text {
+    color: #ffffff;
+    text-shadow: 0 0 6px rgba(125, 211, 252, 0.50);
+}
+
+/* ── TEXT ── */
+#text {
+    color: #bae6fd;
+    font-size: 13px;
+    margin-left: 8px;
+}
+
+/* ── APP ICONS ── */
+#img {
+    margin-right: 4px;
+}

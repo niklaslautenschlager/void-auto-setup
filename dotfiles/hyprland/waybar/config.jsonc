@@ -1,0 +1,144 @@
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  Waybar Config — Frutiger Aero                                 ║
+// ║  Numbered workspaces · Pixel clock · Wlogout                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+{
+    "layer": "top",
+    "position": "top",
+    "height": 40,
+    "spacing": 0,
+
+    // ── Floating bar margins ──────────────────────────────────────
+    "margin-top": 5,
+    "margin-left": 10,
+    "margin-right": 10,
+
+    // ── Module placement ──────────────────────────────────────────
+    "modules-left": [
+        "custom/start",
+        "hyprland/workspaces"
+    ],
+    "modules-center": [
+        "clock",
+	"mpris"
+    ],
+    "modules-right": [
+        "custom/uptime",
+        "bluetooth",
+        "pulseaudio",
+        "battery",
+        "custom/wlogout"
+    ],
+
+    // ── Start Button (Vista/7 orb) ───────────────────────────────
+    "custom/start": {
+        "format": " ",
+        "tooltip": false,
+        "on-click": "wofi --show drun"
+    },
+
+    // ── Workspaces — simple numbered ─────────────────────────────
+    "hyprland/workspaces": {
+        "format": "{id}",
+        "persistent-workspaces": {
+            "*": 5
+        },
+        "on-click": "activate",
+        "sort-by-number": true
+    },
+
+    // ── Clock ────────────────────────────────────────────────────
+    // Default: time.  Click to expand into full date + time.
+    // Hover: full month calendar in tooltip.
+    "clock": {
+        "format": "{:%H:%M}",
+        "format-alt": "  {:%A, %B %d %Y  ·  %H:%M}",
+        "tooltip-format": "<tt><big>{:%B %Y}</big>\n{calendar}</tt>",
+        "calendar": {
+            "mode": "month",
+            "weeks-pos": "left",
+            "on-scroll": 1,
+            "format": {
+                "months": "<span color='#7dd3fc'><b>{}</b></span>",
+                "days": "<span color='#e0f2fe'>{}</span>",
+                "weeks": "<span color='#38bdf8'>W{}</span>",
+                "weekdays": "<span color='#0ea5e9'><b>{}</b></span>",
+                "today": "<span color='#ffffff'><b><u>{}</u></b></span>"
+            }
+        }
+    },
+
+    //---Mpris------------------------------------------------------
+     "mpris": {
+        "format": "{player_icon} {artist} - {title}",
+        "format-paused": "{status_icon} {artist} - {title}",
+        "player-icons": {
+            "default": "󰈫",       // Default Music Icon
+            "spotify": "󰎆",
+            "firefox": " ",// Music
+            "chromium": " ",      // Video
+            "vlc": "󰈫",           // Video
+            "mpv": "󰈫"            // Video
+        },
+        "status-icons": {
+            "paused": "󰏤"
+        },
+        "max-length": 30
+    },
+
+    // ── Uptime ───────────────────────────────────────────────────
+    "custom/uptime": {
+        "format": "󰅐  {}",
+        "exec": "uptime -p | sed 's/up //' | sed 's/ hours\\?/h/g' | sed 's/ minutes\\?/m/g' | sed 's/, / /g'",
+        "interval": 60,
+        "tooltip": false
+    },
+
+    // ── Bluetooth ────────────────────────────────────────────────
+    "bluetooth": {
+        "format": "󰂯",
+        "format-connected": "󰂱  {device_alias}",
+        "format-connected-battery": "󰂱  {device_alias} {device_battery_percentage}%",
+        "format-disabled": "󰂲",
+        "format-off": "󰂲",
+        "tooltip-format": "Bluetooth: {status}\n{controller_alias}  {controller_address}",
+        "tooltip-format-connected": "Bluetooth: {status}\n{controller_alias}  {controller_address}\n\n{device_enumerate}",
+        "tooltip-format-enumerate-connected": "  {device_alias}  {device_address}",
+        "tooltip-format-enumerate-connected-battery": "  {device_alias}  {device_address}  {device_battery_percentage}%",
+        "on-click": "blueman-manager"
+    },
+
+    // ── Pulseaudio ───────────────────────────────────────────────
+    "pulseaudio": {
+        "format": "{icon}  {volume}%",
+        "format-muted": "󰖁  Muted",
+        "format-icons": {
+            "default": ["󰕿", "󰖀", "󰕾"]
+        },
+        "scroll-step": 2,
+        "on-click": "pavucontrol",
+        "tooltip-format": "{desc}\n{volume}%"
+    },
+
+    // ── Battery ──────────────────────────────────────────────────
+    "battery": {
+        "interval": 30,
+        "states": {
+            "good": 80,
+            "warning": 30,
+            "critical": 15
+        },
+        "format": "{icon}  {capacity}%",
+        "format-charging": "󰂄  {capacity}%",
+        "format-plugged": "󰚥  {capacity}%",
+        "format-icons": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+        "tooltip-format": "{timeTo}\n{power:.1f}W"
+    },
+
+    // ── Wlogout Button ───────────────────────────────────────────
+    "custom/wlogout": {
+        "format": "⏻",
+        "tooltip": false,
+        "on-click": "wlogout -p layer-shell"
+    }
+}
