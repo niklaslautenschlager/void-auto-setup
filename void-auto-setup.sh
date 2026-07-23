@@ -1,153 +1,17 @@
 #!/usr/bin/env bash
+#
+# void-postinstall.sh — Interactive post-installation setup for Void Linux
+#
+# Run as root on a freshly installed Void Linux base system.
+# Covers: seat/session management, X11/Wayland desktop environments,
+# app launcher (rofi/wofi), Bluetooth, and PipeWire audio.
+#
+
 set -euo pipefail
 
-# void-auto-setup.sh
-# Purpose: Post-install installer/configurator for a fresh Void Linux install (runit).
-# - Enables repos (nonfree/multilib)
-# - Installs dbus + (elogind OR seatd)
-# - Installs PipeWire + WirePlumber + Bluetooth (BlueZ + Blueman + libspa-bluetooth)
-# - Installs GPU drivers (NVIDIA proprietary supported via Void nonfree; AMD uses Mesa/Vulkan with optional AMDVLK)
-# - Prompts for Desktop/WM: i3 (default), KDE Plasma, river, dwm, niri, hyprland, sway/swayfx, awesome, herbstluftwm, XFCE, GNOME, MATE
-# - Generates usable starter configs for each
-# - Prompts for browser (Firefox default)
-# - Optional Flatpak + Flathub
-# - Installs dev tools
-# - Enables multilib + 32-bit libs for gaming
-#
-# Run as root (sudo). Reboot only at the end (optional).
-
-SCRIPT_VERSION="2026-02-27"
-LOG_FILE="/var/log/void-auto-setup.log"
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WALLPAPER_REPO_PATH="${SCRIPT_DIR}/wallpaper/sample.jpg"
-WALLPAPER_SYSTEM_PATH="/usr/share/backgrounds/void-auto-setup/sample.jpg"
-
-mkdir -p /var/log
-exec > >(tee -a "${LOG_FILE}") 2>&1
-
-# ---------------- helpers ----------------
-color() { printf "\033[%sm%s\033[0m" "$1" "$2"; }
-info()  { printf "%s %s\n" "$(color '1;34' '[INFO]')" "$*"; }
-warn()  { printf "%s %s\n" "$(color '1;33' '[WARN]')" "$*"; }
-err()   { printf "%s %s\n" "$(color '1;31' '[ERR ]')" "$*"; }
-die()   { err "$*"; exit 1; }
-
-PROGRESS_TTY=""
-if [[ -w /dev/tty ]]; then
-  PROGRESS_TTY="/dev/tty"
-fi
-
-PROGRESS_TOTAL=0
-PROGRESS_DONE=0
-PROGRESS_START_EPOCH=0
-
-fmt_mmss() {
-  local s="${1:-0}"
-  if [[ "$s" -lt 0 ]]; then s=0; fi
-  printf "%02d:%02d" $((s / 60)) $((s % 60))
-}
-
-progress_init() {
-  PROGRESS_TOTAL="${1:-0}"
-  PROGRESS_DONE=0
-  PROGRESS_START_EPOCH="$(date +%s)"
-}
-
-progress_out() { # fmt...
-  if [[ -n "${PROGRESS_TTY}" ]]; then
-    # shellcheck disable=SC2059
-    printf "$@" >"${PROGRESS_TTY}"
-  else
-    # shellcheck disable=SC2059
-    printf "$@"
-  fi
-}
-
-progress_render() { # status_text, done_override(optional)
-  local status="${1:-}"
-  local done="${2:-$PROGRESS_DONE}"
-  local total="${PROGRESS_TOTAL:-0}"
-  local now elapsed avg remaining percent bar_len filled empty
-
-  now="$(date +%s)"
-  elapsed=$((now - PROGRESS_START_EPOCH))
-
-  if [[ "$total" -le 0 ]]; then
-    percent=0
-  else
-    percent=$((done * 100 / total))
-  fi
-
-  if [[ "$done" -gt 0 && "$total" -gt 0 ]]; then
-    avg=$((elapsed / done))
-    remaining=$((avg * (total - done)))
-  else
-    remaining=0
-  fi
-
-  bar_len=28
-  filled=$((percent * bar_len / 100))
-  empty=$((bar_len - filled))
-  progress_out "\r[%.*s%.*s] %3d%% (%d/%d) elapsed %s ETA %s - %s" \
-    "${filled}" "############################" \
-    "${empty}" "----------------------------" \
-    "${percent}" "${done}" "${total}" "$(fmt_mmss "${elapsed}")" "$(fmt_mmss "${remaining}")" "${status}"
-}
-
-progress_finish_line() {
-  progress_out "\n"
-}
-
-run_step() { # label, cmd...
-  local label="$1"
-  shift
-
-  if [[ "${PROGRESS_TOTAL:-0}" -gt 0 ]]; then
-    progress_render "Running: ${label}" "${PROGRESS_DONE}"
-  fi
-
-  "$@"
-
-  if [[ "${PROGRESS_TOTAL:-0}" -gt 0 ]]; then
-    PROGRESS_DONE=$((PROGRESS_DONE + 1))
-    progress_render "Done: ${label}" "${PROGRESS_DONE}"
-    progress_finish_line
-  fi
-}
-
-show_splashscreen() {
-  clear
-  local g b it r
-  g="\033[38;2;70;185;54m"
-  b="\033[1m"
-  it="\033[3m"
-  r="\033[0m"
-
-  printf "\n${g}${b}"
-
-  if have_cmd figlet; then
-    # Use figlet if available; try fonts in order of preference
-    local art=""
-    for font in big banner standard ""; do
-      if [[ -n "$font" ]]; then
-        art="$(figlet -f "$font" "VOID INSTALLER" 2>/dev/null)" && break
-      else
-        art="$(figlet "VOID INSTALLER" 2>/dev/null)" && break
-      fi
-    done
-    if [[ -n "$art" ]]; then
-      printf "%s\n" "$art"
-    else
-      _splashscreen_fallback
-    fi
-  else
-    _splashscreen_fallback
-  fi
-
-  printf "${g}${b}${it}Enter the void... (v${SCRIPT_VERSION})${r}\n\n"
-}
-
+# ----------------------------------------------------------------------------
+# Splash screen
+# ----------------------------------------------------------------------------
 _splashscreen_fallback() {
   cat <<'EOF'
 ██╗   ██╗  ██████╗  ██╗██████╗
@@ -166,2072 +30,668 @@ _splashscreen_fallback() {
 EOF
 }
 
-require_root() {
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    die "Please run as root (e.g. sudo bash $0)."
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+msg()  { printf '\n\033[1;32m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
+info() { printf '\033[1;34m  ->\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m  !!\033[0m %s\n' "$*"; }
+
+install_pkgs() {
+  msg "Installing: $*"
+  xbps-install -y "$@"
+}
+
+# Enable a runit service by symlinking /etc/sv/<name> -> /var/service/
+enable_service() {
+  local svc="$1"
+  if [ ! -d "/etc/sv/${svc}" ]; then
+    warn "Service directory /etc/sv/${svc} does not exist; skipping enable."
+    return 0
+  fi
+  if [ -e "/var/service/${svc}" ]; then
+    info "Service '${svc}' is already enabled."
+  else
+    ln -s "/etc/sv/${svc}" /var/service/
+    info "Service '${svc}' enabled (symlinked to /var/service/)."
   fi
 }
 
-read_default() { # prompt default -> echo value
-  local prompt="$1" default="$2" input=""
-  read -r -p "${prompt} [${default}]: " input || true
-  if [[ -z "${input}" ]]; then printf "%s" "${default}"; else printf "%s" "${input}"; fi
+# Check whether a package exists in the configured repos.
+pkg_available() { xbps-query -R "$1" >/dev/null 2>&1; }
+
+# Install only the packages that actually exist in the repos; warn about the rest.
+install_avail() {
+  local found=() p
+  for p in "$@"; do
+    if pkg_available "$p"; then
+      found+=("$p")
+    else
+      warn "Package not found in repos (skipping): $p"
+    fi
+  done
+  if ((${#found[@]})); then
+    install_pkgs "${found[@]}"
+  fi
 }
 
-yes_no() { # prompt default(y/n). return 0 yes, 1 no
-  local prompt="$1" def="$2" dshow="y/N"
-  [[ "${def}" == "y" ]] && dshow="Y/n"
+# Install the first package from a list of candidate names that exists.
+install_first_avail() {
+  local label="$1"; shift
+  local p
+  for p in "$@"; do
+    if pkg_available "$p"; then
+      install_pkgs "$p"
+      return 0
+    fi
+  done
+  warn "No package found for ${label} (tried: $*)."
+}
+
+# Add the unofficial hyprland-void binary repo (github.com/sofijacom/hyprland-void).
+# Void does not package Hyprland officially; this repo provides signed binary
+# packages for x86_64/aarch64 on both glibc and musl. Returns 1 if the current
+# arch/libc combination is not supported.
+setup_hyprland_repo() {
+  local arch libc suffix conf="/etc/xbps.d/hyprland-void.conf"
+  arch="$(uname -m)"
+  if ldd --version 2>&1 | grep -qi musl; then libc="musl"; else libc="glibc"; fi
+  case "${arch}-${libc}" in
+    x86_64-glibc|x86_64-musl|aarch64-glibc|aarch64-musl)
+      suffix="${arch}-${libc}"
+      ;;
+    *)
+      warn "hyprland-void provides no packages for ${arch}-${libc}."
+      return 1
+      ;;
+  esac
+
+  if [ -f "$conf" ] && grep -q "sofijacom/hyprland-void" "$conf" 2>/dev/null; then
+    info "hyprland-void repository already configured (${conf})."
+  else
+    msg "Adding unofficial hyprland-void repository (${suffix})"
+    mkdir -p /etc/xbps.d
+    echo "repository=https://raw.githubusercontent.com/sofijacom/hyprland-void/repository-${suffix}" > "$conf"
+  fi
+
+  msg "Syncing repositories — accept the hyprland-void fingerprint when prompted"
+  xbps-install -S
+}
+
+# Yes/no prompt. Returns 0 for yes, 1 for no.
+ask_yn() {
+  local prompt="$1" def="${2:-n}" show a
+  if [ "$def" = "y" ]; then show="Y/n"; else show="y/N"; fi
   while true; do
-    local a=""
-    read -r -p "${prompt} [${dshow}]: " a || true
+    read -rp "${prompt} [${show}]: " a
     a="${a:-$def}"
     case "${a,,}" in
-      y|yes|j|ja) return 0 ;;
-      n|no|nein) return 1 ;;
-      *) echo "Please answer y or n." ;;
+      y|yes) return 0 ;;
+      n|no)  return 1 ;;
+      *) warn "Please answer y or n." ;;
     esac
   done
 }
 
-have_cmd() { command -v "$1" >/dev/null 2>&1; }
-
-xbps_sync() {
-  info "Syncing XBPS indexes..."
-  xbps-install -Sy >/dev/null
-}
-
-xbps_full_update() {
-  info "Running full system update..."
-  xbps-install -Suy -y
-}
-
-xbps_is_installed() { # pkg
-  xbps-query "$1" >/dev/null 2>&1
-}
-
-xbps_install() {
-  local to_install=()
-  local p
-  for p in "$@"; do
-    if xbps_is_installed "$p"; then
-      info "Already installed (skipping): ${p}"
-    else
-      to_install+=("$p")
-    fi
+# Multi-select prompt. Fills the CHOICES array with the selected labels.
+# Input: numbers separated by spaces (e.g. "1 3 4"), 'a' for all, Enter for none.
+choose_multi() {
+  local prompt="$1"; shift
+  local options=("$@")
+  local i sel t picked valid
+  CHOICES=()
+  echo
+  echo "${prompt}"
+  for i in "${!options[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "${options[$i]}"
   done
-
-  if ((${#to_install[@]})); then
-    info "Installing: ${to_install[*]}"
-    xbps-install -y "${to_install[@]}"
-  else
-    info "Nothing to install in this step."
-  fi
-}
-
-xbps_pkg_available() { xbps-query -R "$1" >/dev/null 2>&1; }
-
-xbps_install_if_available() { # pkgs...
-  local to_install=()
-  local p
-  for p in "$@"; do
-    if xbps_pkg_available "$p"; then
-      to_install+=("$p")
-    else
-      warn "Package not found (skipping): $p"
-    fi
-  done
-
-  if ((${#to_install[@]})); then
-    xbps_install "${to_install[@]}"
-  fi
-}
-
-xbps_install_first_available() { # label, pkg1, pkg2...
-  local label="$1"
-  shift
-  local p
-  for p in "$@"; do
-    if xbps_pkg_available "$p"; then
-      xbps_install "$p"
+  echo "  (numbers separated by spaces, 'a' for all, Enter for none)"
+  while true; do
+    read -rp "Selection: " sel
+    if [ -z "$sel" ]; then
       return 0
     fi
-  done
-  warn "No package found for ${label}. Tried: $*"
-  return 1
-}
-
-ensure_waybar_launcher() {
-  local path="/usr/local/bin/Waybar"
-  safe_mkdir "$(dirname "${path}")"
-  cat > "${path}" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-
-for candidate in /usr/bin/Waybar /usr/bin/waybar /bin/Waybar /bin/waybar; do
-  if [ -x "${candidate}" ]; then
-    exec "${candidate}" "$@"
-  fi
-done
-
-echo "Waybar/waybar not found." >&2
-exit 127
-EOF
-  chmod 0755 "${path}"
-}
-
-enable_void_extra_repo() {
-  # Encoded14/void-extra (prebuilt repo)
-  # Not affiliated with Void Linux. Use at your own risk.
-  local arch libc repo_arch conf_path
-  arch="$(detect_arch)"
-  libc="$(detect_libc_flavor)"
-
-  case "${arch}:${libc}" in
-    x86_64:gnu) repo_arch="x86_64" ;;
-    x86_64:musl) repo_arch="x86_64-musl" ;;
-    aarch64:gnu) repo_arch="aarch64" ;;
-    aarch64:musl) repo_arch="aarch64-musl" ;;
-    *)
-      warn "void-extra repo does not provide prebuilt packages for ${arch} (${libc}). Hyprland install will be skipped."
+    if [ "$sel" = "a" ] || [ "$sel" = "A" ]; then
+      CHOICES=("${options[@]}")
       return 0
-      ;;
-  esac
-
-  conf_path="/etc/xbps.d/20-repository-extra.conf"
-  if [[ -f "${conf_path}" ]] && grep -q "raw.githubusercontent.com/Encoded14/void-extra/repository-" "${conf_path}" 2>/dev/null; then
-    info "void-extra repo already configured (${conf_path})."
-  else
-    info "Configuring void-extra prebuilt repo (${repo_arch})..."
-    safe_mkdir "$(dirname "${conf_path}")"
-    printf "repository=https://raw.githubusercontent.com/Encoded14/void-extra/repository-%s\n" "${repo_arch}" >"${conf_path}"
-  fi
-
-  info "Refreshing repositories (you may be prompted to accept a fingerprint)..."
-  xbps-install -S >/dev/null || true
-}
-
-deploy_hyprland_dotfiles() { # target_user
-  local u="$1"
-  local dotfiles_src="${SCRIPT_DIR}/dotfiles/hyprland"
-
-  if [[ ! -d "${dotfiles_src}" ]]; then
-    warn "Hyprland dotfiles directory not found at ${dotfiles_src}. Skipping."
-    return 0
-  fi
-
-  info "Deploying Hyprland dotfiles for ${u}..."
-
-  local dirs=(hypr kitty waybar wofi mako wlogout fastfetch cava)
-  for d in "${dirs[@]}"; do
-    local src="${dotfiles_src}/${d}"
-    local dst="/home/${u}/.config/${d}"
-    if [[ -d "${src}" ]]; then
-      safe_mkdir "${dst}"
-      cp -r "${src}/." "${dst}/"
-      chown -R "${u}:${u}" "${dst}"
-      info "Deployed ~/.config/${d}"
     fi
+    valid=1
+    picked=()
+    for t in $sel; do
+      if [[ "$t" =~ ^[0-9]+$ ]] && [ "$t" -ge 1 ] && [ "$t" -le "${#options[@]}" ]; then
+        picked+=("${options[$((t - 1))]}")
+      else
+        valid=0
+        break
+      fi
+    done
+    if [ "$valid" -eq 1 ]; then
+      CHOICES=("${picked[@]}")
+      return 0
+    fi
+    warn "Invalid selection, try again."
   done
-
-  # Make waybar weather script executable if present
-  local weather="/home/${u}/.config/waybar/scripts/weather.sh"
-  if [[ -f "${weather}" ]]; then
-    chmod 0755 "${weather}"
-  fi
 }
 
-install_hyprland_experimental() {
-  info "Installing Hyprland (EXPERIMENTAL/BETA) from void-extra..."
-  enable_void_extra_repo
-  if xbps_pkg_available hyprland; then
-    xbps_install hyprland
-  else
-    warn "hyprland package not found even after enabling void-extra. Skipping Hyprland install."
-  fi
-
-  # Install the tutorial's exact supporting stack where available.
-  xbps_install_if_available \
-    xorg-server-xwayland \
-    wofi mako kitty \
-    grim slurp wl-clipboard \
-    polkit polkit-gnome \
-    xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk \
-    hyprland-guiutils
-  xbps_install_first_available "Waybar" Waybar waybar || true
-  ensure_waybar_launcher
-}
-
-enable_service() { # /etc/sv/name -> /var/service/name
-  local name="$1"
-  local src="/etc/sv/${name}"
-  local dst="/var/service/${name}"
-  if [[ ! -d "${src}" ]]; then
-    warn "Service ${name} not found at ${src} (package might not provide a runit service)."
-    return 0
-  fi
-  if [[ -L "${dst}" || -d "${dst}" ]]; then
-    info "Service enabled: ${name}"
-    return 0
-  fi
-  ln -s "${src}" "${dst}"
-  info "Enabled service: ${name}"
-}
-
-disable_service() { # /var/service/name
-  local name="$1"
-  local dst="/var/service/${name}"
-  if [[ -L "${dst}" ]]; then
-    rm -f "${dst}"
-    info "Disabled service: ${name}"
-  elif [[ -d "${dst}" ]]; then
-    warn "Service path ${dst} is a directory (expected symlink); leaving it untouched."
-  fi
-}
-
-ensure_user() {
-  local u="$1"
-  id "$u" >/dev/null 2>&1 || die "User does not exist: ${u}"
-}
-
-safe_mkdir() { mkdir -p "$1"; }
-
-# ---------------- environment checks ----------------
-detect_void() {
-  [[ -f /etc/os-release ]] || die "/etc/os-release missing"
-  # shellcheck disable=SC1091
-  . /etc/os-release
-  [[ "${ID:-}" == "void" ]] || warn "This does not look like Void Linux (ID=${ID:-unknown}). Continuing anyway."
-}
-
-detect_arch() {
-  local a
-  a="$(uname -m)"
-  case "$a" in
-    x86_64) echo "x86_64" ;;
-    aarch64|arm64) echo "aarch64" ;;
-    *) echo "$a" ;;
-  esac
-}
-
-detect_libc_flavor() { # -> gnu|musl
-  if have_cmd ldd && ldd --version 2>&1 | grep -qi musl; then
-    echo "musl"
-  else
-    echo "gnu"
-  fi
-}
-
-# ---------------- prompts ----------------
-choose_target_user() {
-  local u
-  u="$(read_default "Enter the main (non-root) username to configure" "${SUDO_USER:-}")"
-  [[ -n "$u" ]] || die "No user provided."
-  ensure_user "$u"
-  echo "$u"
-}
-
-choose_session_stack() {
-  local prompt=$'\nSeat management:\n  1) elogind (recommended, broad compatibility, KDE/SDDM friendly)\n  2) seatd  (lean, good for Wayland compositors)\nChoose'
-  local c
-  c="$(read_default "${prompt}" "1")"
-  case "$c" in
-    2) echo "seatd" ;;
-    *) echo "elogind" ;;
-  esac
-}
-
-choose_de() {
-  local prompt=$'\nDesktop/WM selection:\n  1) i3 (default, X11)\n  2) KDE Plasma (X11/Wayland, heavier)\n  3) river (Wayland)\n  4) dwm (X11, minimal)\n  5) niri (Wayland)\n  6) Hyprland (Wayland, EXPERIMENTAL/BETA via void-extra)\n  7) sway (Wayland)\n  8) swayfx (Wayland)\n  9) awesome (X11)\n  10) herbstluftwm (X11)\n  11) XFCE (X11)\n  12) GNOME\n  13) MATE (X11)\nChoose'
-  local c
-  c="$(read_default "${prompt}" "1")"
-  case "$c" in
-    2) echo "plasma" ;;
-    3) echo "river" ;;
-    4) echo "dwm" ;;
-    5) echo "niri" ;;
-    6) echo "hyprland" ;;
-    7) echo "sway" ;;
-    8) echo "swayfx" ;;
-    9) echo "awesome" ;;
-    10) echo "herbstluftwm" ;;
-    11) echo "xfce" ;;
-    12) echo "gnome" ;;
-    13) echo "mate" ;;
-    *) echo "i3" ;;
-  esac
-}
-
-choose_login_manager() {
-  local prompt=$'\nLogin manager:\n  1) sddm (default, recommended for KDE and fine for others)\n  2) lightdm (GTK greeter)\n  3) greetd + tuigreet (simple, good for Wayland WMs)\n  4) ly (TUI, lightweight)\n  5) none (startx/tty)\nChoose'
-  local c
-  c="$(read_default "${prompt}" "1")"
-  case "$c" in
-    2) echo "lightdm" ;;
-    3) echo "greetd" ;;
-    4) echo "ly" ;;
-    5) echo "none" ;;
-    *) echo "sddm" ;;
-  esac
-}
-
-normalize_stack_for_login_manager() { # seatstack, lm -> echo seatstack
-  local seatstack="$1" lm="$2"
-  if [[ "$lm" == "sddm" && "$seatstack" != "elogind" ]]; then
-    warn "SDDM with seatd commonly fails on Void (VT/xauth). Switching seat stack to elogind."
-    seatstack="elogind"
-  fi
-  echo "$seatstack"
-}
-
-normalize_stack_for_de() { # seatstack, de -> echo seatstack
-  local seatstack="$1" de="$2"
-  if [[ "$de" == "hyprland" && "$seatstack" != "elogind" ]]; then
-    warn "Hyprland is more reliable with elogind on Void. Switching seat stack to elogind."
-    seatstack="elogind"
-  fi
-  echo "$seatstack"
-}
-
-choose_browser() {
-  local prompt=$'\nBrowser selection:\n  1) Firefox (default)\n  2) Chromium\n  3) Brave\n  4) Librewolf (if available in repos)\nChoose'
-  local c
-  c="$(read_default "${prompt}" "1")"
-  case "$c" in
-    2) echo "chromium" ;;
-    3) echo "brave-browser" ;;
-    4) echo "librewolf" ;;
-    *) echo "firefox" ;;
-  esac
-}
-
-choose_gpu() {
-  local prompt=$'\nGPU selection (for drivers):\n  1) auto-detect (default)\n  2) NVIDIA (proprietary)\n  3) AMD (Mesa + Vulkan; optional AMDVLK)\n  4) Intel (Mesa)\nChoose'
-  local c
-  c="$(read_default "${prompt}" "1")"
-  case "$c" in
-    2) echo "nvidia" ;;
-    3) echo "amd" ;;
-    4) echo "intel" ;;
-    *) echo "auto" ;;
-  esac
-}
-
-# ---------------- repo setup ----------------
-enable_void_repos() {
-  info "Enabling Void repos (nonfree + multilib where applicable)..."
-
-  # These metapackages drop repo files into /etc/xbps.d/
-  # On x86_64, multilib is supported. On other arches, it may not exist.
-  local arch
-  arch="$(detect_arch)"
-
-  xbps_sync
-
-  # nonfree
-  if xbps_pkg_available void-repo-nonfree; then
-    xbps_install void-repo-nonfree
-  else
-    warn "void-repo-nonfree not found in repos. NVIDIA proprietary may not be installable."
-  fi
-
-  if [[ "$arch" == "x86_64" ]]; then
-    if xbps_pkg_available void-repo-multilib; then
-      xbps_install void-repo-multilib
-    else
-      warn "void-repo-multilib not found."
+# Prompt the user to pick one item from a list. Sets REPLY_CHOICE.
+choose() {
+  local prompt="$1"; shift
+  local options=("$@")
+  local i sel
+  echo
+  echo "${prompt}"
+  for i in "${!options[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "${options[$i]}"
+  done
+  while true; do
+    read -rp "Enter choice [1-${#options[@]}]: " sel
+    if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#options[@]}" ]; then
+      REPLY_CHOICE="${options[$((sel - 1))]}"
+      return 0
     fi
-    if xbps_pkg_available void-repo-multilib-nonfree; then
-      xbps_install void-repo-multilib-nonfree
-    else
-      warn "void-repo-multilib-nonfree not found."
-    fi
-  else
-    warn "Architecture ${arch}: multilib likely not available. Skipping multilib repos."
-  fi
-
-  xbps_sync
+    warn "Invalid selection, try again."
+  done
 }
 
-# ---------------- base services ----------------
-install_core_services() {
-  local seatstack="$1"
-  info "Installing core services: dbus + ${seatstack} + polkit"
-  xbps_install dbus polkit
+# ----------------------------------------------------------------------------
+# Preflight
+# ----------------------------------------------------------------------------
+_splashscreen_fallback
 
-  enable_service dbus
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root." >&2
+  exit 1
+fi
 
-  if [[ "$seatstack" == "elogind" ]]; then
-    xbps_install elogind
-    enable_service elogind
-    disable_service seatd
-  else
-    xbps_install seatd
+if ! command -v xbps-install >/dev/null 2>&1; then
+  echo "ERROR: xbps-install not found. Is this a Void Linux system?" >&2
+  exit 1
+fi
+
+msg "Synchronizing repositories and updating the system"
+xbps-install -Syu xbps
+xbps-install -Syu
+
+# D-Bus is required by elogind, bluetoothd, PipeWire and every desktop below.
+install_pkgs dbus
+enable_service dbus
+
+# ----------------------------------------------------------------------------
+# 1. Session and seat management (elogind vs seatd)
+# ----------------------------------------------------------------------------
+msg "Session and seat management"
+choose "Which seat/session manager do you want to use?" \
+  "elogind  (recommended for GNOME, KDE Plasma, XFCE and most desktops)" \
+  "seatd    (lightweight, common for Sway/wlroots setups)"
+
+case "$REPLY_CHOICE" in
+  elogind*)
+    SEAT_MANAGER="elogind"
+    install_pkgs elogind
+    # elogind is normally D-Bus activated on Void; enable a runit service
+    # only if the package ships one.
+    if [ -d /etc/sv/elogind ]; then
+      enable_service elogind
+    else
+      info "elogind is started on demand via D-Bus activation (no runit service needed)."
+    fi
+    ;;
+  seatd*)
+    SEAT_MANAGER="seatd"
+    install_pkgs seatd
     enable_service seatd
-    disable_service elogind
-  fi
-}
+    warn "Remember to add your user to the '_seatd' group:  usermod -aG _seatd <username>"
+    ;;
+esac
+info "Seat manager: ${SEAT_MANAGER}"
 
-install_bootstrap_tools() {
-  info "Installing first-boot tools from the tutorial..."
-  xbps_install ca-certificates sudo git curl xtools
-}
+# ----------------------------------------------------------------------------
+# 2. Display server + desktop environment
+# ----------------------------------------------------------------------------
+msg "Display server selection"
+choose "Do you want an X11 or a Wayland environment?" "X11" "Wayland"
+DISPLAY_SERVER="$REPLY_CHOICE"
 
-# ---------------- audio/bluetooth ----------------
-install_pipewire_bluetooth() {
-  info "Installing PipeWire + WirePlumber + Bluetooth stack..."
-  xbps_install pipewire wireplumber pulseaudio-utils alsa-utils pavucontrol
+DM_SERVICE=""
 
-  # Bluetooth + GUI manager
-  xbps_install bluez blueman
+if [ "$DISPLAY_SERVER" = "X11" ]; then
+  msg "Installing Xorg base packages"
+  install_pkgs xorg-minimal xorg-fonts xterm
 
-  # PipeWire bluetooth (SPA)
-  # Some Void repos name it "libspa-bluetooth"; if not, it may be in pipewire package.
-  xbps_install_if_available libspa-bluetooth
-  xbps_install_if_available rfkill
+  choose "Choose an X11 desktop environment / window manager:" \
+    "GNOME" "KDE Plasma" "XFCE" "MATE" "Cinnamon" "LXQt" "i3"
 
-  # Enable bluetooth daemon
-  enable_service bluetoothd
-}
-
-# ---------------- flatpak ----------------
-install_flatpak() {
-  info "Installing Flatpak and enabling Flathub..."
-  xbps_install flatpak
-
-  # Add flathub if not present
-  if ! flatpak remote-list --system 2>/dev/null | awk '{print $1}' | grep -qx flathub; then
-    flatpak remote-add --system --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    info "Flathub remote added."
-  else
-    info "Flathub already present."
-  fi
-}
-
-# ---------------- dev tools ----------------
-install_dev_tools() {
-  info "Installing development tools..."
-  # base-devel includes gcc, make, etc.
-  xbps_install base-devel git curl wget ca-certificates pkg-config cmake ninja \
-    python3 python3-pip nodejs go rust cargo gdb strace
-  xbps_install_if_available neovim python3-gobject cairo cairo-devel
-}
-
-install_fastfetch() {
-  info "Installing fastfetch (for the vibes)..."
-  if xbps_pkg_available fastfetch; then
-    xbps_install fastfetch
-  else
-    warn "fastfetch package not found in your repos; skipping."
-  fi
-}
-
-install_fonts() {
-  info "Installing common fonts..."
-  xbps_install_if_available fontconfig
-
-  # Baseline choice: dejavu-fonts-ttf OR xorg-fonts.
-  if xbps_pkg_available dejavu-fonts-ttf; then
-    xbps_install dejavu-fonts-ttf
-  elif xbps_pkg_available xorg-fonts; then
-    xbps_install xorg-fonts
-  else
-    warn "No baseline font packages found (dejavu-fonts-ttf / xorg-fonts). Skipping font installation."
-    return 0
-  fi
-
-  # Modern/common additions (install if present).
-  xbps_install_if_available noto-fonts-ttf noto-fonts-cjk noto-fonts-emoji nerd-fonts nerd-fonts-ttf
-
-  if have_cmd xbps-reconfigure; then
-    xbps-reconfigure -f fontconfig >/dev/null 2>&1 || true
-  fi
-}
-
-install_sample_wallpaper() {
-  info "Installing sample wallpaper to ${WALLPAPER_SYSTEM_PATH}..."
-  if [[ ! -f "${WALLPAPER_REPO_PATH}" ]]; then
-    warn "Sample wallpaper not found at ${WALLPAPER_REPO_PATH}. Skipping wallpaper install."
-    return 0
-  fi
-  safe_mkdir "$(dirname "${WALLPAPER_SYSTEM_PATH}")"
-  cp -f "${WALLPAPER_REPO_PATH}" "${WALLPAPER_SYSTEM_PATH}"
-  chmod 0644 "${WALLPAPER_SYSTEM_PATH}" || true
-}
-
-session_kind_for_de() { # de -> x11|wayland
-  case "$1" in
-    river|niri|hyprland|sway|swayfx) echo "wayland" ;;
-    *) echo "x11" ;;
-  esac
-}
-
-choose_launcher() { # session_kind -> launcher id
-  local kind="$1"
-  if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nApp launcher (Wayland):\n  1) wofi   (recommended)\n  2) fuzzel\n  3) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "fuzzel" ;;
-      3) echo "none" ;;
-      *) echo "wofi" ;;
-    esac
-  else
-    local prompt=$'\nApp launcher (X11):\n  1) rofi   (recommended)\n  2) dmenu  (already installed on i3/dwm)\n  3) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "dmenu" ;;
-      3) echo "none" ;;
-      *) echo "rofi" ;;
-    esac
-  fi
-}
-
-launcher_cmd_for() { # launcher id -> command string
-  case "$1" in
-    rofi) echo "rofi -show drun" ;;
-    dmenu) echo "dmenu_run" ;;
-    fuzzel) echo "fuzzel" ;;
-    wofi) echo "wofi --show drun" ;;
-    none|*) echo "" ;;
-  esac
-}
-
-install_launcher() { # launcher id
-  local l="$1"
-  case "$l" in
-    rofi|fuzzel|wofi)
-      xbps_install_if_available "$l"
+  case "$REPLY_CHOICE" in
+    "GNOME")
+      install_pkgs gnome gnome-tweaks gdm
+      DM_SERVICE="gdm"
       ;;
-    dmenu)
-      xbps_install_if_available dmenu
+    "KDE Plasma")
+      install_pkgs kde-plasma kde-baseapps sddm
+      DM_SERVICE="sddm"
       ;;
-    none|"")
+    "XFCE")
+      install_pkgs xfce4 lightdm lightdm-gtk3-greeter
+      DM_SERVICE="lightdm"
       ;;
-    *)
-      warn "Unknown launcher choice: ${l} (skipping)"
+    "MATE")
+      install_pkgs mate mate-extra lightdm lightdm-gtk3-greeter
+      DM_SERVICE="lightdm"
+      ;;
+    "Cinnamon")
+      install_pkgs cinnamon lightdm lightdm-gtk3-greeter
+      DM_SERVICE="lightdm"
+      ;;
+    "LXQt")
+      install_pkgs lxqt sddm
+      DM_SERVICE="sddm"
+      ;;
+    "i3")
+      install_pkgs i3 i3status i3lock dmenu xinit
+      info "Start i3 with 'startx' after adding 'exec i3' to ~/.xinitrc."
       ;;
   esac
-}
+else
+  msg "Installing Wayland base packages"
+  install_pkgs wayland wayland-protocols xdg-desktop-portal xdg-desktop-portal-wlr
 
-choose_wallpaper_manager() { # session_kind -> manager id
-  local kind="$1"
-  if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nWallpaper manager (Wayland GUI):\n  1) azote (recommended)\n  2) waypaper (pipx)\n  3) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "waypaper" ;;
-      3) echo "none" ;;
-      *) echo "azote" ;;
-    esac
-  else
-    local prompt=$'\nWallpaper manager (X11 GUI):\n  1) nitrogen (recommended)\n  2) waypaper (pipx)\n  3) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "waypaper" ;;
-      3) echo "none" ;;
-      *) echo "nitrogen" ;;
-    esac
-  fi
-}
+  choose "Choose a Wayland desktop environment / compositor:" \
+    "GNOME (Wayland)" "KDE Plasma (Wayland)" "Sway" "Wayfire" "River" \
+    "Hyprland (unofficial hyprland-void repo)"
 
-choose_waypaper_backend() { # session_kind -> backend id
-  local kind="$1"
-  if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nWaypaper backend (Wayland):\n  1) swaybg (stable default)\n  2) swww (Wayland-native)\n  3) hyprpaper\n  4) mpvpaper\n  5) wallutils\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "swww" ;;
-      3) echo "hyprpaper" ;;
-      4) echo "mpvpaper" ;;
-      5) echo "wallutils" ;;
-      *) echo "swaybg" ;;
-    esac
-  else
-    local prompt=$'\nWaypaper backend (X11):\n  1) feh (stable default)\n  2) xwallpaper\n  3) wallutils\n  4) mpvpaper\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "xwallpaper" ;;
-      3) echo "wallutils" ;;
-      4) echo "mpvpaper" ;;
-      *) echo "feh" ;;
-    esac
-  fi
-}
-
-install_waypaper_backend() { # backend id, session_kind
-  local backend="$1" kind="$2"
-  case "$backend" in
-    awww|swww)
-      if ! xbps_install_first_available "Waypaper backend swww/awww" swww awww; then
-        if [[ "$kind" == "wayland" ]]; then
-          warn "Falling back to swaybg backend for Waypaper."
-          xbps_install_if_available swaybg
-        else
-          warn "Falling back to feh backend for Waypaper."
-          xbps_install_if_available feh
-        fi
-      fi
+  case "$REPLY_CHOICE" in
+    "GNOME (Wayland)")
+      install_pkgs gnome gnome-tweaks gdm
+      DM_SERVICE="gdm"
       ;;
-    swaybg|xwallpaper|feh|wallutils|hyprpaper|mpvpaper)
-      xbps_install_if_available "${backend}"
+    "KDE Plasma (Wayland)")
+      install_pkgs kde-plasma kde-baseapps sddm
+      DM_SERVICE="sddm"
       ;;
-    *)
-      warn "Unknown Waypaper backend: ${backend}. Installing a safe default."
-      if [[ "$kind" == "wayland" ]]; then
-        xbps_install_if_available swaybg
-      else
-        xbps_install_if_available feh
-      fi
+    "Sway")
+      install_pkgs sway swaybg swaylock swayidle foot
+      info "Start Sway from a TTY by running 'sway'."
       ;;
-  esac
-}
-
-install_pipx_for_waypaper() {
-  xbps_install_if_available python3-pipx
-  if have_cmd pipx; then
-    info "pipx already installed."
-    return 0
-  fi
-
-  info "Installing pipx for Waypaper..."
-  if xbps_pkg_available pipx; then
-    xbps_install pipx
-  elif xbps_pkg_available python3-pipx; then
-    xbps_install python3-pipx
-  else
-    warn "No pipx package found in XBPS. Falling back to python3 -m pip install pipx."
-    xbps_install python3 python3-pip
-    python3 -m pip install --upgrade pipx
-    if [[ -x /root/.local/bin/pipx ]] && [[ ! -x /usr/local/bin/pipx ]]; then
-      ln -s /root/.local/bin/pipx /usr/local/bin/pipx || true
-    fi
-  fi
-
-  have_cmd pipx || die "pipx installation failed; cannot install Waypaper."
-}
-
-install_waypaper_with_pipx() { # target user
-  local u="$1"
-  info "Installing Waypaper into ${u}'s pipx environment..."
-  as_user "$u" "pipx ensurepath >/dev/null 2>&1 || true"
-  if as_user "$u" "pipx list 2>/dev/null | grep -q 'package waypaper'"; then
-    info "Waypaper already installed via pipx for ${u}. Upgrading..."
-    as_user "$u" "pipx upgrade waypaper || true"
-  else
-    as_user "$u" "pipx install waypaper"
-  fi
-}
-
-install_waypaper_manager() { # session_kind, backend, target user
-  local kind="$1" backend="$2" u="$3"
-  info "Installing Waypaper and dependencies..."
-
-  install_waypaper_backend "${backend}" "${kind}"
-
-  xbps_install base-devel pkg-config python3-devel cairo-devel gobject-introspection
-  xbps_install_first_available "Python GObject bindings" python3-gobject python3-gi python-gobject || true
-  xbps_install_first_available "python-imageio" python3-imageio python-imageio || true
-  xbps_install_first_available "python-imageio-ffmpeg" python3-imageio-ffmpeg python-imageio-ffmpeg python3-imageio_ffmpeg python-imageio_ffmpeg || true
-  xbps_install_first_available "python-screeninfo" python3-screeninfo python-screeninfo || true
-  xbps_install_first_available "python-platformdirs" python3-platformdirs python-platformdirs || true
-  xbps_install_if_available python3 python3-pip
-
-  install_pipx_for_waypaper
-  install_waypaper_with_pipx "${u}"
-}
-
-install_wallpaper_manager() { # manager id, session_kind, waypaper_backend, target user
-  local manager="$1" kind="${2:-}" waypaper_backend="${3:-}" u="${4:-}"
-  case "${manager}" in
-    nitrogen|azote)
-      xbps_install_if_available "${manager}"
+    "Wayfire")
+      install_pkgs wayfire foot
+      info "Start Wayfire from a TTY by running 'wayfire'."
       ;;
-    waypaper)
-      install_waypaper_manager "${kind}" "${waypaper_backend}" "${u}"
+    "River")
+      install_pkgs river foot
+      info "Start River from a TTY by running 'river'."
       ;;
-    none|"")
-      ;;
-    *)
-      warn "Unknown wallpaper manager choice: ${manager} (skipping)"
-      ;;
-  esac
-}
-
-choose_file_manager() { # de, session_kind -> pkg name or none
-  local de="$1" kind="$2"
-  if [[ "$de" == "plasma" ]]; then
-    local prompt=$'\nFile manager:\n  1) dolphin (recommended for KDE)\n  2) nemo\n  3) thunar\n  4) pcmanfm\n  5) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "nemo" ;;
-      3) echo "thunar" ;;
-      4) echo "pcmanfm" ;;
-      5) echo "none" ;;
-      *) echo "dolphin" ;;
-    esac
-    return 0
-  fi
-
-  if [[ "$kind" == "wayland" ]]; then
-    local prompt=$'\nFile manager:\n  1) thunar (recommended)\n  2) nemo\n  3) pcmanfm\n  4) dolphin\n  5) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "nemo" ;;
-      3) echo "pcmanfm" ;;
-      4) echo "dolphin" ;;
-      5) echo "none" ;;
-      *) echo "thunar" ;;
-    esac
-  else
-    local prompt=$'\nFile manager:\n  1) nemo (recommended)\n  2) thunar\n  3) pcmanfm\n  4) dolphin\n  5) none\nChoose'
-    local c
-    c="$(read_default "${prompt}" "1")"
-    case "$c" in
-      2) echo "thunar" ;;
-      3) echo "pcmanfm" ;;
-      4) echo "dolphin" ;;
-      5) echo "none" ;;
-      *) echo "nemo" ;;
-    esac
-  fi
-}
-
-install_file_manager() { # pkg
-  local fm="$1"
-  case "$fm" in
-    nemo|thunar|pcmanfm|dolphin)
-      xbps_install_if_available "$fm"
-      ;;
-    none|"")
-      ;;
-    *)
-      warn "Unknown file manager choice: ${fm} (skipping)"
-      ;;
-  esac
-}
-
-# ---------------- gaming / 32-bit ----------------
-install_gaming_multilib() {
-  local arch
-  arch="$(detect_arch)"
-  if [[ "$arch" != "x86_64" ]]; then
-    warn "Non-x86_64 architecture; skipping 32-bit gaming libs."
-    return 0
-  fi
-
-  info "Installing Steam and 32-bit runtime libs from the tutorial..."
-  xbps_install_if_available mesa mesa-dri vulkan-loader
-  xbps_install_if_available mesa-dri-32bit vulkan-loader-32bit
-  xbps_install_if_available steam libgcc-32bit libstdc++-32bit libdrm-32bit libglvnd-32bit
-}
-
-# ---------------- GPU drivers ----------------
-auto_detect_gpu_vendor() {
-  # Try to ensure lspci exists on Void; on non-Void, just skip GPU install.
-  if ! have_cmd lspci; then
-    if have_cmd xbps-install; then
-      xbps_install pciutils || true
-    fi
-  fi
-
-  if ! have_cmd lspci; then
-    warn "Could not detect GPU (no lspci available). GPU drivers will NOT be installed; please install them manually."
-    echo "none"
-    return 0
-  fi
-
-  local out
-  out="$(lspci -nn | grep -Ei 'vga|3d|display' || true)"
-  if echo "$out" | grep -qi nvidia; then
-    echo "nvidia"
-  elif echo "$out" | grep -qi 'amd|ati'; then
-    echo "amd"
-  elif echo "$out" | grep -qi intel; then
-    echo "intel"
-  elif [[ -z "$out" ]]; then
-    warn "No GPU devices detected via lspci. GPU drivers will NOT be installed; please install them manually."
-    echo "none"
-  else
-    warn "GPU devices detected but vendor could not be classified. GPU drivers will NOT be installed; please install them manually."
-    echo "none"
-  fi
-}
-
-configure_nvidia_drm_kms() {
-  if [[ ! -f /etc/default/grub ]]; then
-    warn "/etc/default/grub not found. Add nvidia_drm.modeset=1 to your bootloader manually."
-    return 0
-  fi
-
-  if grep -q 'nvidia_drm.modeset=1' /etc/default/grub 2>/dev/null; then
-    info "GRUB already has nvidia_drm.modeset=1."
-    return 0
-  fi
-
-  info "Enabling nvidia_drm.modeset=1 in GRUB..."
-  sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="nvidia_drm.modeset=1 /' /etc/default/grub
-  if have_cmd grub-mkconfig && [[ -d /boot/grub ]]; then
-    grub-mkconfig -o /boot/grub/grub.cfg
-  else
-    warn "grub-mkconfig not found. Regenerate your bootloader config manually."
-  fi
-}
-
-install_gpu_drivers() {
-  local choice="$1"
-  local vendor="$choice"
-  if [[ "$choice" == "auto" ]]; then
-    vendor="$(auto_detect_gpu_vendor)"
-    info "Auto-detected GPU vendor: ${vendor}"
-  fi
-
-  case "$vendor" in
-    nvidia)
-      info "Installing NVIDIA proprietary driver stack..."
-      xbps_install nvidia
-      xbps_install_if_available nvidia-libs-32bit
-      configure_nvidia_drm_kms
-      ;;
-    amd)
-      info "Installing AMD Mesa/Vulkan stack..."
-      xbps_install mesa mesa-dri vulkan-loader
-      # Prefer RADV (vulkan-radeon) if available
-      if xbps_pkg_available vulkan-radeon; then
-        xbps_install vulkan-radeon
-      fi
-      if yes_no "Install AMDVLK (optional alternative Vulkan driver)?" "n"; then
-        if xbps_pkg_available amdvlk; then
-          xbps_install amdvlk
-        else
-          warn "amdvlk not found in repos."
-        fi
-      fi
-      ;;
-    intel)
-      info "Installing Intel Mesa/Vulkan stack..."
-      xbps_install mesa mesa-dri vulkan-loader
-      ;;
-    none|"")
-      warn "Skipping GPU driver installation because no suitable GPU was detected. You will need to install drivers manually."
-      ;;
-    *)
-      warn "Unknown GPU vendor (${vendor}). Skipping GPU driver installation. You will need to install drivers manually."
-      ;;
-  esac
-}
-
-# ---------------- login managers ----------------
-install_login_manager() {
-  local lm="$1"
-  case "$lm" in
-    sddm)
-      info "Installing SDDM..."
-      # SDDM on Void uses an X11 greeter by default; make sure Xorg + xauth are present.
-      xbps_install sddm xorg-minimal xauth
-      safe_mkdir /etc/sddm.conf.d
-      cat > /etc/sddm.conf.d/10-void-auto-setup.conf <<'EOF'
-[General]
-DisplayServer=x11
-EOF
-      if id sddm >/dev/null 2>&1; then
-        safe_mkdir /var/lib/sddm
-        chown sddm:sddm /var/lib/sddm || true
-      fi
-      enable_service sddm
-      ;;
-    lightdm)
-      info "Installing LightDM..."
-      xbps_install lightdm lightdm-gtk3-greeter
-      enable_service lightdm
-      ;;
-    greetd)
-      info "Installing greetd + tuigreet..."
-      xbps_install greetd tuigreet
-      enable_service greetd
-      ;;
-    ly)
-      info "Installing Ly display manager..."
-      if ! xbps_pkg_available ly; then
-        warn "ly package not found in repos. Skipping."
-        return 0
-      fi
-      xbps_install ly
-      xbps_install_if_available brightnessctl
-      # Ly runs on TTY2 by default; disable getty there to avoid conflicts.
-      disable_service agetty-tty2
-      enable_service ly
-      ;;
-    none)
-      info "No login manager selected."
-      ;;
-  esac
-}
-
-# ---------------- desktop / wm installs ----------------
-install_x11_base() {
-  xbps_install xorg-minimal xinit xauth xsetroot xrandr xdg-utils xdg-user-dirs polybar
-}
-
-install_wayland_base() {
-  xbps_install wayland wayland-protocols xdg-utils xdg-user-dirs
-  xbps_install_first_available "Waybar" Waybar waybar || true
-  ensure_waybar_launcher
-}
-
-install_de() {
-  local de="$1"
-  case "$de" in
-    i3)
-      info "Installing i3 environment (X11)..."
-      install_x11_base
-      xbps_install i3 i3status i3lock dmenu picom feh alacritty
-      ;;
-    plasma)
-      info "Installing KDE Plasma..."
-      install_x11_base
-      # Plasma meta packages vary; try a sensible set
-      if xbps_pkg_available kde5; then
-        xbps_install kde5
-      else
-        xbps_install plasma-desktop konsole dolphin kdegraphics-thumbnailers
-      fi
-      ;;
-    dwm)
-      info "Installing dwm (X11)..."
-      install_x11_base
-      xbps_install dwm dmenu feh picom sxhkd
-      xbps_install_if_available st alacritty xterm
-      ;;
-    awesome)
-      info "Installing awesome WM (X11)..."
-      install_x11_base
-      xbps_install awesome feh picom alacritty
-      ;;
-    herbstluftwm)
-      info "Installing herbstluftwm (X11)..."
-      install_x11_base
-      xbps_install herbstluftwm dmenu feh picom alacritty
-      ;;
-    river)
-      info "Installing river (Wayland)..."
-      install_wayland_base
-      xbps_install river foot swaybg grim slurp wl-clipboard
-      ;;
-    niri)
-      info "Installing niri (Wayland)..."
-      install_wayland_base
-      # Package name can differ; attempt "niri"
-      if xbps_pkg_available niri; then
-        xbps_install niri
-      else
-        warn "niri package not found in repos. You may need to build it from source."
-      fi
-      xbps_install foot swaybg grim slurp wl-clipboard
-      ;;
-    hyprland)
-      info "Installing Hyprland base dependencies (Wayland)..."
-      install_wayland_base
-      xbps_install_if_available kitty swaybg grim slurp wl-clipboard
-      ;;
-    sway)
-      info "Installing sway (Wayland)..."
-      install_wayland_base
-      xbps_install sway foot swaybg grim slurp wl-clipboard
-      ;;
-    swayfx)
-      info "Installing swayfx (Wayland)..."
-      install_wayland_base
-      if ! xbps_install_first_available "swayfx/sway" swayfx sway; then
-        warn "Neither swayfx nor sway found in repos."
-      fi
-      xbps_install_if_available foot swaybg grim slurp wl-clipboard
-      ;;
-    xfce)
-      info "Installing XFCE (X11)..."
-      install_x11_base
-      if ! xbps_install_first_available "XFCE desktop" xfce4 xfce; then
-        warn "XFCE desktop meta package not found."
-      fi
-      xbps_install_if_available xfce4-terminal thunar
-      ;;
-    gnome)
-      info "Installing GNOME..."
-      install_x11_base
-      install_wayland_base
-      if ! xbps_install_first_available "GNOME desktop" gnome gnome-core gnome-session gnome-shell; then
-        warn "GNOME desktop meta package not found."
-      fi
-      xbps_install_if_available gnome-terminal nautilus
-      ;;
-    mate)
-      info "Installing MATE (X11)..."
-      install_x11_base
-      if ! xbps_install_first_available "MATE desktop" mate mate-desktop; then
-        warn "MATE desktop meta package not found."
-      fi
-      xbps_install_if_available mate-terminal caja
-      ;;
-  esac
-}
-
-# ---------------- user configuration ----------------
-as_user() { # user cmd...
-  local u="$1"; shift
-  sudo -u "$u" -H bash -lc "$*"
-}
-
-ensure_groups_for_seat_stack() {
-  local seatstack="$1" u="$2"
-  # For seatd, user often needs "seat" group access. Void uses 'seat' group for seatd.
-  if [[ "$seatstack" == "seatd" ]]; then
-    if getent group seat >/dev/null 2>&1; then
-      usermod -aG seat "$u" || true
-      info "Added ${u} to group 'seat' (seatd access)."
-    else
-      warn "Group 'seat' not found. seatd access may require manual adjustment."
-    fi
-  fi
-  # Common groups for audio/video/input
-  for g in audio video input bluetooth; do
-    if getent group "$g" >/dev/null 2>&1; then
-      usermod -aG "$g" "$u" || true
-    fi
-  done
-}
-
-setup_common_user_bits() {
-  local u="$1"
-  info "Setting up common user directories and autostart bits for ${u}..."
-  as_user "$u" "xdg-user-dirs-update || true"
-
-  # Ensure the PipeWire stack starts from the user session without systemd user units.
-  safe_mkdir "/home/${u}/.config"
-  safe_mkdir "/home/${u}/.config/autostart"
-  safe_mkdir "/home/${u}/.config/pipewire/pipewire.conf.d"
-
-  if [[ -f /usr/share/applications/pipewire.desktop ]]; then
-    ln -sfn /usr/share/applications/pipewire.desktop "/home/${u}/.config/autostart/pipewire.desktop"
-  else
-    cat > "/home/${u}/.config/autostart/pipewire.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=PipeWire
-Exec=pipewire
-X-GNOME-Autostart-enabled=true
-EOF
-  fi
-
-  if [[ -f /usr/share/applications/wireplumber.desktop ]]; then
-    ln -sfn /usr/share/applications/wireplumber.desktop "/home/${u}/.config/autostart/wireplumber.desktop"
-  else
-    cat > "/home/${u}/.config/autostart/wireplumber.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=WirePlumber
-Exec=wireplumber
-X-GNOME-Autostart-enabled=true
-EOF
-  fi
-
-  if [[ -f /usr/share/examples/pipewire/20-pipewire-pulse.conf ]]; then
-    ln -sfn /usr/share/examples/pipewire/20-pipewire-pulse.conf "/home/${u}/.config/pipewire/pipewire.conf.d/20-pipewire-pulse.conf"
-  else
-    warn "PipeWire example config /usr/share/examples/pipewire/20-pipewire-pulse.conf not found."
-  fi
-
-  if [[ -f /usr/share/examples/wireplumber/10-wireplumber.conf ]]; then
-    ln -sfn /usr/share/examples/wireplumber/10-wireplumber.conf "/home/${u}/.config/pipewire/pipewire.conf.d/10-wireplumber.conf"
-  else
-    warn "WirePlumber example config /usr/share/examples/wireplumber/10-wireplumber.conf not found."
-  fi
-
-  chown "${u}:${u}" "/home/${u}/.config" "/home/${u}/.config/autostart" "/home/${u}/.config/pipewire" "/home/${u}/.config/pipewire/pipewire.conf.d"
-  chown -h "${u}:${u}" "/home/${u}/.config/autostart/pipewire.desktop" "/home/${u}/.config/autostart/wireplumber.desktop" 2>/dev/null || true
-  chown -h "${u}:${u}" "/home/${u}/.config/pipewire/pipewire.conf.d/20-pipewire-pulse.conf" "/home/${u}/.config/pipewire/pipewire.conf.d/10-wireplumber.conf" 2>/dev/null || true
-}
-
-setup_waypaper_restore_autostart() {
-  local u="$1"
-  info "Adding Waypaper restore autostart for ${u}..."
-  safe_mkdir "/home/${u}/.config/autostart"
-  local waypaper_cmd="/home/${u}/.local/bin/waypaper"
-  if [[ ! -x "${waypaper_cmd}" ]]; then
-    waypaper_cmd="waypaper"
-  fi
-  cat > "/home/${u}/.config/autostart/waypaper-restore.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Waypaper Restore
-EOF
-  printf "Exec=%s --restore\n" "${waypaper_cmd}" >>"/home/${u}/.config/autostart/waypaper-restore.desktop"
-  printf "TryExec=%s\n" "${waypaper_cmd}" >>"/home/${u}/.config/autostart/waypaper-restore.desktop"
-  cat >> "/home/${u}/.config/autostart/waypaper-restore.desktop" <<'EOF'
-X-GNOME-Autostart-enabled=true
-EOF
-  chown "${u}:${u}" "/home/${u}/.config/autostart/waypaper-restore.desktop"
-}
-
-setup_i3_config() {
-  local u="$1" launcher_cmd="${2:-dmenu_run}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating i3 config for ${u}..."
-  safe_mkdir "/home/${u}/.config/i3"
-  safe_mkdir "/home/${u}/.config/i3status"
-
-  cat > "/home/${u}/.config/i3/config" <<'EOF'
-# i3 config (generated)
-set $mod Mod4
-font pango:monospace 10
-
-# Terminal and launcher
-bindsym $mod+Return exec alacritty
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "bindsym \$mod+d exec --no-startup-id %s\n\n" "${launcher_cmd}" >>"/home/${u}/.config/i3/config"
-  fi
-  cat >> "/home/${u}/.config/i3/config" <<'EOF'
-
-# Basics
-bindsym $mod+Shift+q kill
-bindsym $mod+Shift+r restart
-bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'Exit i3?' -b 'Yes' 'i3-msg exit'"
-
-# Focus/move
-bindsym $mod+h focus left
-bindsym $mod+j focus down
-bindsym $mod+k focus up
-bindsym $mod+l focus right
-bindsym $mod+Shift+h move left
-bindsym $mod+Shift+j move down
-bindsym $mod+Shift+k move up
-bindsym $mod+Shift+l move right
-
-# Layout
-bindsym $mod+v split v
-bindsym $mod+b split h
-bindsym $mod+f fullscreen toggle
-bindsym $mod+s layout stacking
-bindsym $mod+w layout tabbed
-bindsym $mod+e layout toggle split
-
-# Workspaces
-set $ws1 "1"
-set $ws2 "2"
-set $ws3 "3"
-set $ws4 "4"
-set $ws5 "5"
-bindsym $mod+1 workspace $ws1
-bindsym $mod+2 workspace $ws2
-bindsym $mod+3 workspace $ws3
-bindsym $mod+4 workspace $ws4
-bindsym $mod+5 workspace $ws5
-bindsym $mod+Shift+1 move container to workspace $ws1; workspace $ws1
-bindsym $mod+Shift+2 move container to workspace $ws2; workspace $ws2
-bindsym $mod+Shift+3 move container to workspace $ws3; workspace $ws3
-bindsym $mod+Shift+4 move container to workspace $ws4; workspace $ws4
-bindsym $mod+Shift+5 move container to workspace $ws5; workspace $ws5
-
-# Status bar
-bar {
-  status_command i3status
-}
-
-# Compositor + wallpaper
-exec --no-startup-id picom
-EOF
-  printf "exec --no-startup-id feh --bg-scale %q 2>/dev/null || true\n\n" "${wallpaper_path}" >>"/home/${u}/.config/i3/config"
-  cat >> "/home/${u}/.config/i3/config" <<'EOF'
-
-# Audio (PipeWire)
-exec --no-startup-id pipewire
-exec --no-startup-id wireplumber
-
-# Bluetooth tray (optional)
-exec --no-startup-id blueman-applet
-EOF
-
-  cat > "/home/${u}/.config/i3status/config" <<'EOF'
-general {
-  colors = true
-  interval = 5
-}
-order += "disk /"
-order += "wireless _first_"
-order += "ethernet _first_"
-order += "battery all"
-order += "volume master"
-order += "tztime local"
-
-disk "/" { format = "Disk %avail" }
-wireless "_first_" { format_up = "W: %quality at %essid %ip" format_down = "W: down" }
-ethernet "_first_" { format_up = "E: %ip" format_down = "E: down" }
-battery "all" { format = "%status %percentage %remaining" }
-volume "master" { format = "Vol %volume" }
-tztime "local" { format = "%Y-%m-%d %H:%M" }
-EOF
-
-  chown -R "${u}:${u}" "/home/${u}/.config/i3" "/home/${u}/.config/i3status"
-}
-
-setup_xinitrc_for_x11() {
-  local u="$1" session_cmd="$2" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating ~/.xinitrc for ${u} (X11)..."
-  cat > "/home/${u}/.xinitrc" <<EOF
-#!/usr/bin/env sh
-# generated
-export XDG_CURRENT_DESKTOP="${session_cmd}"
-export XDG_SESSION_TYPE="x11"
-command -v feh >/dev/null 2>&1 && feh --bg-scale "${wallpaper_path}" >/dev/null 2>&1 || true
-exec ${session_cmd}
-EOF
-  chmod 0755 "/home/${u}/.xinitrc"
-  chown "${u}:${u}" "/home/${u}/.xinitrc"
-}
-
-setup_dwm_config() {
-  local u="$1" launcher_cmd="${2:-dmenu_run}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  local terminal_launcher=""
-  terminal_launcher="$(write_terminal_launcher_wrapper)"
-
-  info "Generating dwm starter config for ${u}..."
-  setup_xinitrc_for_x11 "$u" "dwm" "${wallpaper_path}"
-  safe_mkdir "/home/${u}/.config/sxhkd"
-
-  cat > "/home/${u}/.config/sxhkd/sxhkdrc" <<EOF
-# generated dwm helper keybinds
-super + Return
-    ${terminal_launcher}
-
-super + shift + q
-    pkill -x dwm
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "\nsuper + d\n    %s\n" "${launcher_cmd}" >>"/home/${u}/.config/sxhkd/sxhkdrc"
-  fi
-
-  cat > "/home/${u}/.xprofile" <<'EOF'
-# generated
-(sxhkd &) >/dev/null 2>&1 || true
-(picom &) >/dev/null 2>&1 || true
-EOF
-  printf "(feh --bg-scale %q &) >/dev/null 2>&1 || true\n" "${wallpaper_path}" >>"/home/${u}/.xprofile"
-  chown -R "${u}:${u}" "/home/${u}/.config/sxhkd" "/home/${u}/.xprofile"
-}
-
-setup_awesome_config() {
-  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Configuring awesome for ${u}..."
-  safe_mkdir "/home/${u}/.config/awesome"
-  if [[ -f /etc/xdg/awesome/rc.lua ]]; then
-    cp -f /etc/xdg/awesome/rc.lua "/home/${u}/.config/awesome/rc.lua"
-  else
-    warn "/etc/xdg/awesome/rc.lua not found. Awesome will use packaged defaults if available."
-  fi
-
-  cat > "/home/${u}/.xprofile" <<'EOF'
-# generated
-(picom &) >/dev/null 2>&1 || true
-EOF
-  printf "(feh --bg-scale %q &) >/dev/null 2>&1 || true\n" "${wallpaper_path}" >>"/home/${u}/.xprofile"
-  chown -R "${u}:${u}" "/home/${u}/.config/awesome" "/home/${u}/.xprofile"
-
-  setup_xinitrc_for_x11 "$u" "awesome" "${wallpaper_path}"
-}
-
-setup_herbstluftwm_config() {
-  local u="$1" launcher_cmd="${2:-dmenu_run}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating herbstluftwm config for ${u}..."
-  safe_mkdir "/home/${u}/.config/herbstluftwm"
-  cat > "/home/${u}/.config/herbstluftwm/autostart" <<'EOF'
-#!/usr/bin/env bash
-set -eu
-
-hc() { herbstclient "$@"; }
-
-# basic reset/defaults
-hc emit_hook reload
-hc set frame_border_width 2
-hc set window_border_width 2
-hc set frame_gap 8
-hc set smart_frame_surroundings on
-hc set smart_window_surroundings on
-hc set mouse_recenter_gap 0
-
-# tags/workspaces
-for i in 1 2 3 4 5 6 7 8 9; do
-  hc add "$i" >/dev/null 2>&1 || true
-done
-hc use 1
-
-# keybinds
-Mod=Mod4
-hc keybind "$Mod-Return" spawn alacritty
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "hc keybind \"\$Mod-d\" spawn %s\n" "${launcher_cmd}" >>"/home/${u}/.config/herbstluftwm/autostart"
-  fi
-  cat >> "/home/${u}/.config/herbstluftwm/autostart" <<'EOF'
-hc keybind "$Mod-Shift-q" close
-hc keybind "$Mod-Shift-e" quit
-
-# directional focus/move
-hc keybind "$Mod-h" focus left
-hc keybind "$Mod-j" focus down
-hc keybind "$Mod-k" focus up
-hc keybind "$Mod-l" focus right
-hc keybind "$Mod-Shift-h" shift left
-hc keybind "$Mod-Shift-j" shift down
-hc keybind "$Mod-Shift-k" shift up
-hc keybind "$Mod-Shift-l" shift right
-
-# startup helpers
-if command -v pipewire >/dev/null 2>&1 && ! pgrep -x pipewire >/dev/null 2>&1; then
-  pipewire &
-fi
-if command -v wireplumber >/dev/null 2>&1 && ! pgrep -x wireplumber >/dev/null 2>&1; then
-  wireplumber &
-fi
-command -v blueman-applet >/dev/null 2>&1 && blueman-applet &
-command -v picom >/dev/null 2>&1 && picom &
-EOF
-  printf "command -v feh >/dev/null 2>&1 && feh --bg-scale %q &\n" "${wallpaper_path}" >>"/home/${u}/.config/herbstluftwm/autostart"
-  chmod 0755 "/home/${u}/.config/herbstluftwm/autostart"
-  chown -R "${u}:${u}" "/home/${u}/.config/herbstluftwm"
-
-  setup_xinitrc_for_x11 "$u" "herbstluftwm" "${wallpaper_path}"
-}
-
-setup_plasma_config() {
-  local u="$1"
-  info "Plasma: minimal setup. SDDM recommended."
-  # Nothing heavy required; Plasma manages itself.
-  # Provide a fallback startx entry too.
-  setup_xinitrc_for_x11 "$u" "startplasma-x11" "${WALLPAPER_SYSTEM_PATH}"
-}
-
-setup_xfce_config() {
-  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
-  info "XFCE: generating startx fallback."
-  setup_xinitrc_for_x11 "$u" "startxfce4" "${wallpaper_path}"
-}
-
-setup_gnome_config() {
-  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
-  info "GNOME: generating startx fallback."
-  setup_xinitrc_for_x11 "$u" "gnome-session" "${wallpaper_path}"
-}
-
-setup_mate_config() {
-  local u="$1" wallpaper_path="${2:-${WALLPAPER_SYSTEM_PATH}}"
-  info "MATE: generating startx fallback."
-  setup_xinitrc_for_x11 "$u" "mate-session" "${wallpaper_path}"
-}
-
-setup_river_config() {
-  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating river init for ${u}..."
-  safe_mkdir "/home/${u}/.config/river"
-  cat > "/home/${u}/.config/river/init" <<'EOF'
-#!/usr/bin/env bash
-set -e
-
-# generated river init
-export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP=river
-
-# Export DBus activation env for portals/audio clients
-command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP || true
-command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --all || true
-
-# Start PipeWire / WirePlumber
-pgrep -x pipewire >/dev/null || pipewire &
-pgrep -x wireplumber >/dev/null || wireplumber &
-
-# Wallpaper
-EOF
-  printf "command -v swaybg >/dev/null && swaybg -i %q -m fill &\n\n" "${wallpaper_path}" >>"/home/${u}/.config/river/init"
-  cat >> "/home/${u}/.config/river/init" <<'EOF'
-
-# Bluetooth tray (optional, on wlroots may need XWayland; still fine)
-command -v blueman-applet >/dev/null && blueman-applet &
-command -v Waybar >/dev/null && Waybar &
-
-# Keybindings (super)
-riverctl map normal Super Return spawn foot
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "riverctl map normal Super D spawn %s\n\n" "${launcher_cmd}" >>"/home/${u}/.config/river/init"
-  fi
-  cat >> "/home/${u}/.config/river/init" <<'EOF'
-riverctl map normal Super Q close
-riverctl map normal Super+Shift E exit
-
-# Basic layout: rivertile if installed (optional)
-if command -v rivertile >/dev/null 2>&1; then
-  rivertile -view-padding 6 -outer-padding 6 &
-fi
-
-# Set repeat rate
-riverctl set-repeat 50 300
-EOF
-  chmod 0755 "/home/${u}/.config/river/init"
-  chown -R "${u}:${u}" "/home/${u}/.config/river"
-}
-
-setup_niri_config() {
-  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating niri config for ${u}..."
-  safe_mkdir "/home/${u}/.config/niri"
-  cat > "/home/${u}/.config/niri/config.kdl" <<'EOF'
-// generated niri config (minimal usable)
-environment {
-  XDG_SESSION_TYPE "wayland"
-  XDG_CURRENT_DESKTOP "niri"
-}
+    "Hyprland (unofficial hyprland-void repo)")
+      warn "Hyprland is NOT in the official Void repositories."
+      warn "This uses the unofficial binary repo github.com/sofijacom/hyprland-void"
+      warn "(signed packages, built via GitHub Actions from void-packages templates)."
+      if ask_yn "Add the hyprland-void repository and install Hyprland?" "y"; then
+        if setup_hyprland_repo; then
+          msg "Installing Hyprland and its supporting stack"
+          install_avail hyprland xdg-desktop-portal-hyprland hyprpolkitagent \
+            hyprpaper hyprlock hypridle
+          install_avail xorg-server-xwayland xdg-desktop-portal-gtk \
+            kitty grim slurp wl-clipboard
+          install_first_avail "Waybar" Waybar waybar
+
+          # Starter config: Hyprland's packaged default lacks Void-specific
+          # autostarts (PipeWire has no service on Void; polkit agent needed).
+          mkdir -p /etc/skel/.config/hypr
+          cat > /etc/skel/.config/hypr/hyprland.conf <<'HYPR'
+# Generated starter config — see https://wiki.hyprland.org for full options
+monitor = , preferred, auto, auto
 
 input {
-  repeat-rate 50
-  repeat-delay 300
-}
-
-spawn-at-startup "pipewire"
-spawn-at-startup "wireplumber"
-spawn-at-startup "blueman-applet"
-spawn-at-startup "Waybar"
-spawn-at-startup "sh" "-lc" "command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP || true"
-spawn-at-startup "sh" "-lc" "command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --all || true"
-EOF
-  printf "spawn-at-startup \"swaybg -i %s -m fill\"\n\n" "${wallpaper_path}" >>"/home/${u}/.config/niri/config.kdl"
-  cat >> "/home/${u}/.config/niri/config.kdl" <<'EOF'
-
-bindings {
-  Mod4+Return spawn "foot"
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "  Mod4+D spawn \"%s\"\n" "${launcher_cmd}" >>"/home/${u}/.config/niri/config.kdl"
-  fi
-  cat >> "/home/${u}/.config/niri/config.kdl" <<'EOF'
-  Mod4+Q close-window
-  Mod4+Shift+E quit
-}
-EOF
-  chown -R "${u}:${u}" "/home/${u}/.config/niri"
-}
-
-setup_hyprland_config() {
-  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}" wall_mgr="${4:-none}"
-  local waypaper_cmd="/home/${u}/.local/bin/waypaper"
-  info "Generating Hyprland config for ${u}..."
-  safe_mkdir "/home/${u}/.config/hypr"
-  if [[ ! -x "${waypaper_cmd}" ]]; then
-    waypaper_cmd="waypaper"
-  fi
-  cat >"/home/${u}/.config/hypr/hyprland.conf" <<'EOF'
-# generated hyprland config
-
-input {
-  kb_layout = us
+    kb_layout = us
 }
 
 general {
-  gaps_in = 5
-  gaps_out = 10
-  border_size = 2
-}
-
-decoration {
-  rounding = 6
-}
-
-animations {
-  enabled = 1
+    gaps_in = 4
+    gaps_out = 8
+    border_size = 2
 }
 
 misc {
-  disable_hyprland_logo = 1
+    disable_hyprland_logo = true
 }
 
-exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
-exec-once = dbus-update-activation-environment --all
-exec-once = pipewire &
-exec-once = wireplumber &
-exec-once = sleep 1 && /usr/libexec/xdg-desktop-portal-hyprland
-exec-once = sleep 2 && /usr/libexec/xdg-desktop-portal-gtk
+# Void has no systemd user units: start the session services here.
+exec-once = pipewire
+exec-once = wireplumber
+exec-once = hyprpolkitagent
 exec-once = waybar
-exec-once = blueman-applet
+exec-once = hyprpaper
 
 bind = SUPER, Return, exec, kitty
+bind = SUPER, D, exec, wofi --show drun
 bind = SUPER, Q, killactive,
 bind = SUPER SHIFT, E, exit,
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "bind = SUPER, D, exec, %s\n" "${launcher_cmd}" >>"/home/${u}/.config/hypr/hyprland.conf"
-  fi
-  if [[ "${wall_mgr}" == "waypaper" ]]; then
-    cat >>"/home/${u}/.config/hypr/hyprland.conf" <<'EOF'
-
-# Monitor Configuration
-# Format: monitor = name, res@hz, position, scale
-monitor = DP-1, 3840x2160@60, 0x0, 1.5
-monitor = DP-2, 3440x1440@144, 2560x0, 1
-EOF
-    printf "exec-once = swww-daemon\n" >>"/home/${u}/.config/hypr/hyprland.conf"
-    printf "exec-once = %s --restore\n" "${waypaper_cmd}" >>"/home/${u}/.config/hypr/hyprland.conf"
-  else
-    printf "monitor = , preferred, auto, auto\n" >>"/home/${u}/.config/hypr/hyprland.conf"
-    printf "exec-once = swaybg -i %q -m fill\n" "${wallpaper_path}" >>"/home/${u}/.config/hypr/hyprland.conf"
-  fi
-
-  chown -R "${u}:${u}" "/home/${u}/.config/hypr"
-}
-
-setup_sway_config() {
-  local u="$1" launcher_cmd="${2:-wofi --show drun}" wallpaper_path="${3:-${WALLPAPER_SYSTEM_PATH}}"
-  info "Generating sway config for ${u}..."
-  safe_mkdir "/home/${u}/.config/sway"
-  cat > "/home/${u}/.config/sway/config" <<'EOF'
-# generated sway config (minimal usable)
-set $mod Mod4
-
-bindsym $mod+Return exec foot
-bindsym $mod+Shift+q kill
-bindsym $mod+Shift+e exit
-
-bindsym $mod+h focus left
-bindsym $mod+j focus down
-bindsym $mod+k focus up
-bindsym $mod+l focus right
-
-bindsym $mod+Shift+h move left
-bindsym $mod+Shift+j move down
-bindsym $mod+Shift+k move up
-bindsym $mod+Shift+l move right
-
-bindsym $mod+1 workspace number 1
-bindsym $mod+2 workspace number 2
-bindsym $mod+3 workspace number 3
-bindsym $mod+4 workspace number 4
-bindsym $mod+5 workspace number 5
-bindsym $mod+Shift+1 move container to workspace number 1
-bindsym $mod+Shift+2 move container to workspace number 2
-bindsym $mod+Shift+3 move container to workspace number 3
-bindsym $mod+Shift+4 move container to workspace number 4
-bindsym $mod+Shift+5 move container to workspace number 5
-bindsym $mod+Shift+r reload
-
-exec_always --no-startup-id dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
-exec_always --no-startup-id dbus-update-activation-environment --all
-exec pipewire
-exec wireplumber
-exec Waybar
-exec blueman-applet
-EOF
-  if [[ -n "${launcher_cmd}" ]]; then
-    printf "bindsym \$mod+d exec %s\n" "${launcher_cmd}" >>"/home/${u}/.config/sway/config"
-  fi
-  printf "output * bg %q fill\n" "${wallpaper_path}" >>"/home/${u}/.config/sway/config"
-  chown -R "${u}:${u}" "/home/${u}/.config/sway"
-}
-
-setup_wayland_session_desktop_file() {
-  local name="$1" exec_cmd="$2"
-  local path="/usr/share/wayland-sessions/${name}.desktop"
-  safe_mkdir "$(dirname "$path")"
-  cat > "$path" <<EOF
-[Desktop Entry]
-Name=${name}
-Comment=Generated session
-Exec=${exec_cmd}
-Type=Application
-EOF
-}
-
-setup_x11_session_desktop_file() {
-  local name="$1" exec_cmd="$2"
-  local path="/usr/share/xsessions/${name}.desktop"
-  safe_mkdir "$(dirname "$path")"
-  cat > "$path" <<EOF
-[Desktop Entry]
-Name=${name}
-Comment=Generated session
-Exec=${exec_cmd}
-Type=Application
-EOF
-}
-
-write_x11_wallpaper_wrapper() { # name, session_cmd, wallpaper_path
-  local name="$1" session_cmd="$2" wallpaper_path="$3"
-  local path="/usr/local/bin/void-auto-setup-${name}"
-  safe_mkdir "$(dirname "${path}")"
-  cat > "${path}" <<EOF
-#!/usr/bin/env sh
-set -eu
-if command -v feh >/dev/null 2>&1; then
-  feh --bg-scale "${wallpaper_path}" >/dev/null 2>&1 || true
-fi
-exec ${session_cmd}
-EOF
-  chmod 0755 "${path}"
-  echo "${path}"
-}
-
-write_wayland_launcher_wrapper() { # name, desktop_id, candidate...
-  local name="$1" desktop_id="$2"
-  shift 2
-  local path="/usr/local/bin/void-auto-setup-start-${name}"
-  local candidate
-
-  safe_mkdir "$(dirname "${path}")"
-
-  cat > "${path}" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-
-find_session_bin() {
-EOF
-  for candidate in "$@"; do
-    printf '  if [ -x "%s" ]; then\n    printf "%%s\\n" "%s"\n    return 0\n  fi\n' "${candidate}" "${candidate}" >> "${path}"
-  done
-  cat >> "${path}" <<EOF
-  return 1
-}
-
-SESSION_BIN="\$(find_session_bin || true)"
-if [ -z "\${SESSION_BIN}" ]; then
-  echo "No executable found for ${name}." >&2
-  exit 127
-fi
-
-if [ -z "\${XDG_SESSION_TYPE:-}" ]; then
-  export XDG_SESSION_TYPE=wayland
-fi
-if [ -z "\${XDG_CURRENT_DESKTOP:-}" ]; then
-  export XDG_CURRENT_DESKTOP=${desktop_id}
-fi
-if [ -z "\${XDG_SESSION_DESKTOP:-}" ]; then
-  export XDG_SESSION_DESKTOP=${desktop_id}
-fi
-if [ -z "\${DESKTOP_SESSION:-}" ]; then
-  export DESKTOP_SESSION=${desktop_id}
-fi
-if [ -z "\${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/\$(id -u)" ]; then
-  export XDG_RUNTIME_DIR="/run/user/\$(id -u)"
-fi
-if [ -z "\${LIBSEAT_BACKEND:-}" ] && ( command -v loginctl >/dev/null 2>&1 || [ -e /run/elogind.pid ] || [ -L /var/service/elogind ] ); then
-  export LIBSEAT_BACKEND=logind
-fi
-
-if [ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
-  exec dbus-run-session -- "\${SESSION_BIN}"
-fi
-
-exec "\${SESSION_BIN}"
-EOF
-
-  chmod 0755 "${path}"
-  ln -sfn "${path}" "/usr/local/bin/start-${name}"
-  echo "${path}"
-}
-
-write_terminal_launcher_wrapper() {
-  local path="/usr/local/bin/void-auto-setup-terminal"
-  safe_mkdir "$(dirname "${path}")"
-  cat > "${path}" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-for candidate in alacritty foot st xterm xfce4-terminal mate-terminal gnome-terminal konsole; do
-  if command -v "${candidate}" >/dev/null 2>&1; then
-    exec "${candidate}"
-  fi
-done
-echo "No terminal emulator found. Install one (for example alacritty, st, or xterm)." >&2
-exit 127
-EOF
-  chmod 0755 "${path}"
-  echo "${path}"
-}
-
-write_swayfx_launcher_wrapper() {
-  write_wayland_launcher_wrapper "swayfx" "swayfx" /usr/bin/swayfx /usr/bin/sway /bin/swayfx /bin/sway
-}
-
-write_hyprland_launcher_wrapper() {
-  local path="/usr/local/bin/void-auto-setup-start-hyprland"
-  safe_mkdir "$(dirname "${path}")"
-  cat > "${path}" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-
-find_hyprland_binary() {
-  for candidate in /usr/bin/Hyprland /usr/bin/hyprland /bin/Hyprland /bin/hyprland; do
-    if [ -x "${candidate}" ]; then
-      printf "%s\n" "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-HYPRLAND_BIN="$(find_hyprland_binary || true)"
-if [ -z "${HYPRLAND_BIN}" ]; then
-  echo "Hyprland binary not found. Install package 'hyprland' first." >&2
-  exit 127
-fi
-
-if [ -z "${XDG_SESSION_TYPE:-}" ]; then
-  export XDG_SESSION_TYPE=wayland
-fi
-if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
-  export XDG_CURRENT_DESKTOP=Hyprland
-fi
-if [ -z "${XDG_SESSION_DESKTOP:-}" ]; then
-  export XDG_SESSION_DESKTOP=Hyprland
-fi
-if [ -z "${DESKTOP_SESSION:-}" ]; then
-  export DESKTOP_SESSION=Hyprland
-fi
-if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
-  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-fi
-if [ -z "${LIBSEAT_BACKEND:-}" ] && ( command -v loginctl >/dev/null 2>&1 || [ -e /run/elogind.pid ] || [ -L /var/service/elogind ] ); then
-  export LIBSEAT_BACKEND=logind
-fi
-
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
-  exec dbus-run-session -- "${HYPRLAND_BIN}"
-fi
-
-exec "${HYPRLAND_BIN}"
-EOF
-  chmod 0755 "${path}"
-
-  # Convenience aliases for manual TTY startup.
-  ln -sfn "${path}" /usr/local/bin/start-hyprland
-  if [[ ! -x /usr/bin/hyprland ]]; then
-    ln -sfn "${path}" /usr/local/bin/hyprland
-  fi
-
-  echo "${path}"
-}
-
-configure_session_files() {
-  local de="$1" u="$2" lm="$3"
-  local launcher_cmd="${4:-}" wallpaper_path="${5:-${WALLPAPER_SYSTEM_PATH}}" wall_mgr="${6:-none}"
-  case "$de" in
-    i3)
-      setup_i3_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
-      local i3_exec="i3"
-      i3_exec="$(write_x11_wallpaper_wrapper "i3" "i3" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "i3" "${i3_exec}"
-      # startx fallback
-      setup_xinitrc_for_x11 "$u" "i3" "${wallpaper_path}"
-      ;;
-    plasma)
-      setup_plasma_config "$u"
-      local plasma_exec="startplasma-x11"
-      plasma_exec="$(write_x11_wallpaper_wrapper "plasma-x11" "startplasma-x11" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "Plasma (X11)" "${plasma_exec}"
-      # Wayland session typically provided by plasma; don't override.
-      ;;
-    dwm)
-      setup_dwm_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
-      local dwm_exec="dwm"
-      dwm_exec="$(write_x11_wallpaper_wrapper "dwm" "dwm" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "dwm" "${dwm_exec}"
-      ;;
-    xfce)
-      setup_xfce_config "$u" "${wallpaper_path}"
-      local xfce_exec="startxfce4"
-      xfce_exec="$(write_x11_wallpaper_wrapper "xfce" "startxfce4" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "XFCE" "${xfce_exec}"
-      ;;
-    gnome)
-      setup_gnome_config "$u" "${wallpaper_path}"
-      local gnome_exec="gnome-session"
-      gnome_exec="$(write_x11_wallpaper_wrapper "gnome" "gnome-session" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "GNOME" "${gnome_exec}"
-      ;;
-    mate)
-      setup_mate_config "$u" "${wallpaper_path}"
-      local mate_exec="mate-session"
-      mate_exec="$(write_x11_wallpaper_wrapper "mate" "mate-session" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "MATE" "${mate_exec}"
-      ;;
-    awesome)
-      setup_awesome_config "$u" "${wallpaper_path}"
-      local awesome_exec="awesome"
-      awesome_exec="$(write_x11_wallpaper_wrapper "awesome" "awesome" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "awesome" "${awesome_exec}"
-      ;;
-    herbstluftwm)
-      setup_herbstluftwm_config "$u" "${launcher_cmd:-dmenu_run}" "${wallpaper_path}"
-      local herbst_exec="herbstluftwm"
-      herbst_exec="$(write_x11_wallpaper_wrapper "herbstluftwm" "herbstluftwm" "${wallpaper_path}")"
-      setup_x11_session_desktop_file "herbstluftwm" "${herbst_exec}"
-      ;;
-    river)
-      setup_river_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      local river_exec=""
-      river_exec="$(write_wayland_launcher_wrapper "river" "river" /usr/bin/river /bin/river)"
-      setup_wayland_session_desktop_file "river" "${river_exec}"
-      ;;
-    niri)
-      setup_niri_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      local niri_exec=""
-      niri_exec="$(write_wayland_launcher_wrapper "niri" "niri" /usr/bin/niri /bin/niri)"
-      setup_wayland_session_desktop_file "niri" "${niri_exec}"
-      ;;
-    hyprland)
-      setup_hyprland_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}" "${wall_mgr}"
-      local hypr_exec=""
-      hypr_exec="$(write_hyprland_launcher_wrapper)"
-      if [[ "$lm" == "sddm" ]]; then
-        hypr_exec="dbus-run-session -- ${hypr_exec}"
+HYPR
+          info "Starter config written to /etc/skel/.config/hypr/hyprland.conf"
+          info "(copied for new users; existing users can copy it to ~/.config/hypr/)."
+          info "Start Hyprland from a TTY by running 'Hyprland' (capital H)."
+        else
+          warn "Unsupported platform for hyprland-void — Hyprland was not installed."
+        fi
+      else
+        warn "Hyprland installation declined — no desktop was installed."
       fi
-      setup_wayland_session_desktop_file "Hyprland (experimental)" "${hypr_exec}"
-      ;;
-    sway)
-      setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      local sway_exec=""
-      sway_exec="$(write_wayland_launcher_wrapper "sway" "sway" /usr/bin/sway /bin/sway)"
-      setup_wayland_session_desktop_file "sway" "${sway_exec}"
-      ;;
-    swayfx)
-      setup_sway_config "$u" "${launcher_cmd:-wofi --show drun}" "${wallpaper_path}"
-      local swayfx_exec=""
-      swayfx_exec="$(write_swayfx_launcher_wrapper)"
-      setup_wayland_session_desktop_file "swayfx" "${swayfx_exec}"
       ;;
   esac
+fi
 
-  # For greetd, user may need a configured command. We do a simple default.
-  if [[ "$lm" == "greetd" ]]; then
-    safe_mkdir /etc/greetd
-    local cmd=""
-    case "$de" in
-      i3|dwm|plasma|awesome|herbstluftwm|xfce|gnome|mate) cmd="startx" ;;
-      river) cmd="/usr/local/bin/void-auto-setup-start-river" ;;
-      niri) cmd="/usr/local/bin/void-auto-setup-start-niri" ;;
-      hyprland) cmd="/usr/local/bin/void-auto-setup-start-hyprland" ;;
-      sway) cmd="/usr/local/bin/void-auto-setup-start-sway" ;;
-      swayfx) cmd="/usr/local/bin/void-auto-setup-start-swayfx" ;;
-    esac
-    cat > /etc/greetd/config.toml <<EOF
-[terminal]
-vt = 1
+DESKTOP_CHOICE="$REPLY_CHOICE"
 
-[default_session]
-command = "tuigreet --time --cmd ${cmd}"
-user = "${u}"
-EOF
-    info "Configured greetd to start: ${cmd}"
-  fi
+if [ -n "$DM_SERVICE" ]; then
+  msg "Enabling display manager: ${DM_SERVICE}"
+  enable_service "$DM_SERVICE"
+fi
+
+# ----------------------------------------------------------------------------
+# 3. Application launcher (rofi for X11, wofi for Wayland)
+# ----------------------------------------------------------------------------
+if [ "$DISPLAY_SERVER" = "X11" ]; then
+  msg "Installing and configuring rofi (X11 application launcher)"
+  install_pkgs rofi
+  mkdir -p /etc/skel/.config/rofi
+  cat > /etc/skel/.config/rofi/config.rasi <<'ROFI'
+configuration {
+    modi: "drun,run,window";
+    show-icons: true;
+    icon-theme: "Adwaita";
+    display-drun: "Apps";
+    display-run: "Run";
+    display-window: "Windows";
 }
-
-# ---------------- browser ----------------
-install_browser() {
-  local b="$1"
-  info "Installing browser: ${b}"
-  if xbps_pkg_available "$b"; then
-    xbps_install "$b"
-  else
-    warn "Browser package not found: ${b}. Installing firefox instead."
-    xbps_install firefox
-  fi
+@theme "gruvbox-dark"
+ROFI
+  info "Default rofi config written to /etc/skel/.config/rofi/config.rasi"
+  info "(copied into the home directory of every user created from now on;"
+  info " existing users can copy it manually). Launch with: rofi -show drun"
+else
+  msg "Installing and configuring wofi (Wayland application launcher)"
+  install_pkgs wofi
+  mkdir -p /etc/skel/.config/wofi
+  cat > /etc/skel/.config/wofi/config <<'WOFI'
+show=drun
+allow_images=true
+insensitive=true
+prompt=Search...
+width=40%
+height=45%
+WOFI
+  cat > /etc/skel/.config/wofi/style.css <<'WOFICSS'
+window {
+  background-color: #282828;
+  border: 2px solid #504945;
+  border-radius: 8px;
+  font-family: monospace;
 }
-
-# ---------------- final touches ----------------
-final_notes() {
-  cat <<'EOF'
-
-============================================================
-Done.
-
-Notes:
-- Services enabled (as applicable): dbus, elogind/seatd, bluetoothd, login-manager (sddm/lightdm/greetd/ly).
-- PipeWire and WirePlumber are started via user autostart entries (no systemd user units on Void).
-- If you chose "none" for login manager, use:
-    startx
-  from a TTY (after login) to start X11 sessions (i3/dwm/plasma/awesome/herbstluftwm/xfce/gnome/mate).
-- For Wayland sessions, use SDDM/LightDM/greetd, or run compositor from tty.
-
-Log:
-  /var/log/void-auto-setup.log
-============================================================
-
-EOF
+#input {
+  margin: 8px;
+  border-radius: 4px;
+  background-color: #3c3836;
+  color: #ebdbb2;
 }
-
-maybe_reboot() {
-  echo
-  if yes_no "Reboot now to apply drivers/services fully?" "y"; then
-    info "Rebooting..."
-    reboot
-  else
-    info "Reboot skipped. You should reboot later."
-  fi
+#entry:selected {
+  background-color: #504945;
 }
+#text {
+  color: #ebdbb2;
+}
+WOFICSS
+  info "Default wofi config written to /etc/skel/.config/wofi/"
+  info "(copied into the home directory of every user created from now on;"
+  info " existing users can copy it manually). Launch with: wofi"
+fi
 
-# ---------------- main ----------------
-main() {
-  require_root
-  detect_void
-  show_splashscreen
+# ----------------------------------------------------------------------------
+# 4. Application selection (tuxmate-style)
+# ----------------------------------------------------------------------------
+msg "Application selection"
+info "Pick the applications you want. Every category can be skipped."
+SELECTED_SUMMARY=()
 
-  info "Void auto setup starting (version ${SCRIPT_VERSION})"
-  xbps_sync
-  if [[ "$(detect_libc_flavor)" != "gnu" ]]; then
-    warn "This tutorial path assumes glibc. Steam and multilib support are best on x86_64 glibc."
-  fi
+# --- Web browsers (multi-select) ---
+choose_multi "Which web browsers do you want to install?" \
+  "Firefox" "Chromium" "Epiphany (GNOME Web)" "qutebrowser" "Falkon"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "Firefox")               install_avail firefox ;;
+    "Chromium")              install_avail chromium ;;
+    "Epiphany (GNOME Web)")  install_avail epiphany ;;
+    "qutebrowser")           install_avail qutebrowser ;;
+    "Falkon")                install_avail falkon ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("Browsers: ${CHOICES[*]}"); fi
 
-  local target_user seatstack de lm browser gpu want_flatpak="n" want_fastfetch="n"
-  local want_fonts="y" session_kind launcher launcher_cmd want_wall_mgr="n" wall_mgr="none"
-  local wallpaper_backend="none"
-  local file_manager="none"
-  local want_dev_tools="n"
-  local want_hypr_dotfiles="n"
-  target_user="$(choose_target_user)"
-  seatstack="$(choose_session_stack)"
-  de="$(choose_de)"
-  lm="$(choose_login_manager)"
-  seatstack="$(normalize_stack_for_login_manager "${seatstack}" "${lm}")"
-  seatstack="$(normalize_stack_for_de "${seatstack}" "${de}")"
-  browser="$(choose_browser)"
-  gpu="$(choose_gpu)"
+# --- File managers (multi-select) ---
+choose_multi "Which file managers do you want to install?" \
+  "Thunar (GTK)" "PCManFM (GTK, light)" "Nemo (GTK)" "Dolphin (Qt/KDE)" "ranger (terminal)"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "Thunar (GTK)")          install_avail thunar ;;
+    "PCManFM (GTK, light)")  install_avail pcmanfm ;;
+    "Nemo (GTK)")            install_avail nemo ;;
+    "Dolphin (Qt/KDE)")      install_avail dolphin ;;
+    "ranger (terminal)")     install_avail ranger ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("File managers: ${CHOICES[*]}"); fi
 
-  session_kind="$(session_kind_for_de "$de")"
-  launcher="$(choose_launcher "${session_kind}")"
-  launcher_cmd="$(launcher_cmd_for "${launcher}")"
-  file_manager="$(choose_file_manager "${de}" "${session_kind}")"
+# --- Programming tools (multi-select) ---
+choose_multi "Which programming tools do you want to install?" \
+  "base-devel + git (gcc, make, headers)" \
+  "Python 3 + pip" \
+  "Node.js" \
+  "Go" \
+  "Rust (rustc + cargo)" \
+  "Clang/LLVM" \
+  "Java (OpenJDK)" \
+  "CMake + Ninja + pkg-config" \
+  "Debugging (gdb, strace)" \
+  "Docker" \
+  "Podman"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "base-devel + git (gcc, make, headers)") install_avail base-devel git ;;
+    "Python 3 + pip")                        install_avail python3 python3-pip ;;
+    "Node.js")                               install_avail nodejs ;;
+    "Go")                                    install_avail go ;;
+    "Rust (rustc + cargo)")                  install_avail rust cargo ;;
+    "Clang/LLVM")                            install_avail clang ;;
+    "Java (OpenJDK)")                        install_first_avail "OpenJDK" openjdk21 openjdk17 openjdk11 ;;
+    "CMake + Ninja + pkg-config")            install_avail cmake ninja pkg-config ;;
+    "Debugging (gdb, strace)")               install_avail gdb strace ;;
+    "Docker")
+      install_avail docker
+      enable_service containerd
+      enable_service docker
+      warn "Add your user to the 'docker' group for rootless CLI access:  usermod -aG docker <username>"
+      ;;
+    "Podman")                                install_avail podman ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("Dev tools: ${CHOICES[*]}"); fi
 
-  if yes_no "Install common fonts (DejaVu + Noto + Nerd Fonts if available)?" "y"; then
-    want_fonts="y"
-  else
-    want_fonts="n"
-  fi
+# --- Code editors (multi-select) ---
+choose_multi "Which code editors do you want to install?" \
+  "Neovim" "Vim" "Emacs" "VS Code" "Geany" "micro" "Kate"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "Neovim")  install_avail neovim ;;
+    "Vim")     install_avail vim ;;
+    "Emacs")   install_first_avail "Emacs" emacs-gtk3 emacs ;;
+    "VS Code") install_avail vscode ;;
+    "Geany")   install_avail geany ;;
+    "micro")   install_avail micro ;;
+    "Kate")    install_avail kate ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("Editors: ${CHOICES[*]}"); fi
 
-  if yes_no "Install Flatpak + add Flathub?" "y"; then
-    want_flatpak="y"
-  fi
-  if yes_no "Install fastfetch (for the vibes)?" "y"; then
-    want_fastfetch="y"
-  fi
-  if yes_no "Install a wallpaper GUI manager?" "n"; then
-    want_wall_mgr="y"
-    wall_mgr="$(choose_wallpaper_manager "${session_kind}")"
-    if [[ "${wall_mgr}" == "waypaper" ]]; then
-      if [[ "${de}" == "hyprland" ]]; then
-        wallpaper_backend="swww"
-        info "Hyprland + Waypaper uses the swww backend."
-      else
-        wallpaper_backend="$(choose_waypaper_backend "${session_kind}")"
+# --- VPN & networking (multi-select) ---
+choose_multi "Which VPN / networking packages do you want?" \
+  "NetworkManager (+ applet)" "WireGuard" "OpenVPN" "OpenSSH server (sshd)" "Tailscale"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "NetworkManager (+ applet)")
+      install_avail NetworkManager network-manager-applet
+      # NetworkManager conflicts with dhcpcd/wpa_supplicant managing interfaces.
+      if [ -e /var/service/dhcpcd ]; then
+        rm -f /var/service/dhcpcd
+        info "Disabled dhcpcd service (NetworkManager takes over DHCP)."
       fi
-    fi
-  fi
+      if [ -e /var/service/wpa_supplicant ]; then
+        rm -f /var/service/wpa_supplicant
+        info "Disabled standalone wpa_supplicant service (managed by NetworkManager)."
+      fi
+      enable_service NetworkManager
+      ;;
+    "WireGuard")               install_avail wireguard-tools ;;
+    "OpenVPN")                 install_avail openvpn ;;
+    "OpenSSH server (sshd)")
+      install_avail openssh
+      enable_service sshd
+      ;;
+    "Tailscale")
+      install_avail tailscale
+      enable_service tailscaled
+      info "Run 'tailscale up' after reboot to authenticate."
+      ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("Networking: ${CHOICES[*]}"); fi
 
-  if yes_no "Install development tools (base-devel, cmake, python3, rust, go, nodejs, gdb, etc.)?" "n"; then
-    want_dev_tools="y"
-  fi
+# --- Terminal emulator (single choice) ---
+choose "Which terminal emulator do you want as your main terminal?" \
+  "Alacritty (GPU-accelerated, X11+Wayland)" \
+  "Kitty (GPU-accelerated, X11+Wayland)" \
+  "Foot (lightweight, Wayland only)" \
+  "XTerm (classic, X11)" \
+  "Skip (keep the desktop environment's default)"
+case "$REPLY_CHOICE" in
+  Alacritty*) install_avail alacritty; SELECTED_SUMMARY+=("Terminal: Alacritty") ;;
+  Kitty*)     install_avail kitty;     SELECTED_SUMMARY+=("Terminal: Kitty") ;;
+  Foot*)      install_avail foot;      SELECTED_SUMMARY+=("Terminal: Foot") ;;
+  XTerm*)     install_avail xterm;     SELECTED_SUMMARY+=("Terminal: XTerm") ;;
+  Skip*)      info "Keeping the desktop environment's default terminal." ;;
+esac
 
-  if [[ "${de}" == "hyprland" ]] && [[ -d "${SCRIPT_DIR}/dotfiles/hyprland" ]]; then
-    if yes_no "Deploy bundled Hyprland dotfiles (hypr, waybar, wofi, kitty, mako, wlogout, fastfetch, cava)?" "y"; then
-      want_hypr_dotfiles="y"
-    fi
-  fi
+# --- Media players (multi-select) ---
+choose_multi "Which media players do you want to install?" \
+  "mpv" "VLC" "Celluloid (mpv GUI)" "Audacious (music)"
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "mpv")                 install_avail mpv ;;
+    "VLC")                 install_avail vlc ;;
+    "Celluloid (mpv GUI)") install_avail celluloid ;;
+    "Audacious (music)")   install_avail audacious ;;
+  esac
+done
+if ((${#CHOICES[@]})); then SELECTED_SUMMARY+=("Media: ${CHOICES[*]}"); fi
 
-  local steps=16
-  if [[ "${want_flatpak}" == "y" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${want_fastfetch}" == "y" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${want_fonts}" == "y" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${launcher}" != "none" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${file_manager}" != "none" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${want_wall_mgr}" == "y" && "${wall_mgr}" != "none" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${wall_mgr}" == "waypaper" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${de}" == "hyprland" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${want_dev_tools}" == "y" ]]; then
-    steps=$((steps + 1))
-  fi
-  if [[ "${want_hypr_dotfiles}" == "y" ]]; then
-    steps=$((steps + 1))
-  fi
-  progress_init "${steps}"
+# --- Password manager (single choice) ---
+choose "Do you want a password manager?" \
+  "KeePassXC (graphical)" \
+  "pass (command-line, GPG-based)" \
+  "Skip"
+case "$REPLY_CHOICE" in
+  KeePassXC*) install_avail keepassxc; SELECTED_SUMMARY+=("Password manager: KeePassXC") ;;
+  pass*)      install_avail pass gnupg; SELECTED_SUMMARY+=("Password manager: pass") ;;
+  Skip)       info "No password manager selected." ;;
+esac
 
-  run_step "Full system update" xbps_full_update
-  run_step "Install bootstrap tools" install_bootstrap_tools
-  run_step "Enable Void repos" enable_void_repos
-  run_step "Install core services (dbus + seat stack + polkit)" install_core_services "$seatstack"
-  run_step "Install PipeWire + Bluetooth" install_pipewire_bluetooth
-  if [[ "${want_dev_tools}" == "y" ]]; then
-    run_step "Install development tools" install_dev_tools
+# --- Extras (yes/no) ---
+msg "Extras"
+if ask_yn "Install Steam? (enables the nonfree + multilib repos and 32-bit libraries)" "n"; then
+  if [ "$(uname -m)" != "x86_64" ]; then
+    warn "Steam requires x86_64; skipping."
+  elif ldd --version 2>&1 | grep -qi musl; then
+    warn "Steam is not available on musl systems; skipping."
+  else
+    install_avail void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree
+    msg "Re-syncing repositories after enabling multilib"
+    xbps-install -Sy
+    install_avail steam mesa-dri-32bit vulkan-loader-32bit libgcc-32bit libstdc++-32bit
+    SELECTED_SUMMARY+=("Gaming: Steam + 32-bit libs")
   fi
-  if [[ "${want_fonts}" == "y" ]]; then
-    run_step "Install common fonts" install_fonts
-  fi
-  if [[ "${want_fastfetch}" == "y" ]]; then
-    run_step "Install fastfetch" install_fastfetch
-  fi
-  run_step "Install GPU drivers (if detected)" install_gpu_drivers "$gpu"
+fi
+if ask_yn "Install fastfetch?" "y"; then
+  install_avail fastfetch
+  SELECTED_SUMMARY+=("Extras: fastfetch")
+fi
+if ask_yn "Install LibreOffice?" "n"; then
+  install_avail libreoffice
+  SELECTED_SUMMARY+=("Extras: LibreOffice")
+fi
+if ask_yn "Install Thunderbird (email client)?" "n"; then
+  install_avail thunderbird
+  SELECTED_SUMMARY+=("Extras: Thunderbird")
+fi
 
-  # DE/WM + session generation
-  run_step "Install desktop/WM" install_de "$de"
-  if [[ "${de}" == "hyprland" ]]; then
-    run_step "Install Hyprland (experimental workaround)" install_hyprland_experimental
-  fi
-  run_step "Install login manager" install_login_manager "$lm"
-  if [[ "${launcher}" != "none" ]]; then
-    run_step "Install app launcher" install_launcher "${launcher}"
-  fi
-  if [[ "${file_manager}" != "none" ]]; then
-    run_step "Install file manager" install_file_manager "${file_manager}"
-  fi
-  if [[ "${want_wall_mgr}" == "y" && "${wall_mgr}" != "none" ]]; then
-    run_step "Install wallpaper manager" install_wallpaper_manager "${wall_mgr}" "${session_kind}" "${wallpaper_backend}" "${target_user}"
-  fi
-  run_step "Install sample wallpaper" install_sample_wallpaper
+# ----------------------------------------------------------------------------
+# 5. Bluetooth
+# ----------------------------------------------------------------------------
+msg "Bluetooth setup"
+install_pkgs bluez libspa-bluetooth
+enable_service bluetoothd
+warn "Add your user to the 'bluetooth' group for device access:  usermod -aG bluetooth <username>"
 
-  run_step "Ensure user groups" ensure_groups_for_seat_stack "$seatstack" "$target_user"
-  run_step "Set up user autostart bits" setup_common_user_bits "$target_user"
-  if [[ "${wall_mgr}" == "waypaper" ]]; then
-    run_step "Configure Waypaper restore autostart" setup_waypaper_restore_autostart "$target_user"
-  fi
-  run_step "Generate session/config files" configure_session_files "$de" "$target_user" "$lm" "${launcher_cmd}" "${WALLPAPER_SYSTEM_PATH}" "${wall_mgr}"
-  if [[ "${want_hypr_dotfiles}" == "y" ]]; then
-    run_step "Deploy Hyprland dotfiles" deploy_hyprland_dotfiles "$target_user"
-  fi
+# ----------------------------------------------------------------------------
+# 6. PipeWire (per the official Void Linux documentation, system-wide config)
+# ----------------------------------------------------------------------------
+msg "PipeWire sound setup"
 
-  run_step "Install browser" install_browser "$browser"
+# Remove PulseAudio if present — it conflicts with pipewire-pulse.
+if xbps-query pulseaudio >/dev/null 2>&1; then
+  msg "Removing conflicting pulseaudio package"
+  xbps-remove -Ry pulseaudio
+else
+  info "pulseaudio is not installed — nothing to remove."
+fi
 
-  if [[ "${want_flatpak}" == "y" ]]; then
-    run_step "Install Flatpak + Flathub" install_flatpak
-  fi
+install_pkgs pipewire wireplumber
 
-  run_step "Install gaming/multilib extras" install_gaming_multilib
+msg "Creating system-wide PipeWire configuration"
+mkdir -p /etc/pipewire/pipewire.conf.d
 
-  run_step "Print final notes" final_notes
-  maybe_reboot
-}
+# WirePlumber session manager
+if [ ! -e /etc/pipewire/pipewire.conf.d/10-wireplumber.conf ]; then
+  ln -s /usr/share/examples/wireplumber/10-wireplumber.conf /etc/pipewire/pipewire.conf.d/
+  info "Enabled WirePlumber session manager (10-wireplumber.conf)."
+else
+  info "WirePlumber config already in place."
+fi
 
-main "$@"
+# PulseAudio compatibility interface
+if [ ! -e /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf ]; then
+  ln -s /usr/share/examples/pipewire/20-pipewire-pulse.conf /etc/pipewire/pipewire.conf.d/
+  info "Enabled PipeWire PulseAudio interface (20-pipewire-pulse.conf)."
+else
+  info "PipeWire-Pulse config already in place."
+fi
+
+warn "PipeWire requires an active D-Bus USER session bus."
+warn "Launch 'pipewire' via your desktop environment or window manager's"
+warn "autostart mechanism (e.g. XDG autostart, or 'exec pipewire' in your"
+warn "sway/i3 config) — it is NOT run as a system-wide runit service."
+
+# ----------------------------------------------------------------------------
+# Done
+# ----------------------------------------------------------------------------
+msg "Post-installation setup complete!"
+echo
+info "Summary:"
+info "  Seat manager:    ${SEAT_MANAGER}"
+info "  Display server:  ${DISPLAY_SERVER}"
+info "  Desktop:         ${DESKTOP_CHOICE}"
+info "  Audio:           PipeWire + WirePlumber (system-wide config)"
+info "  Bluetooth:       bluez + libspa-bluetooth (bluetoothd enabled)"
+if ((${#SELECTED_SUMMARY[@]})); then
+  for line in "${SELECTED_SUMMARY[@]}"; do
+    info "  ${line}"
+  done
+fi
+echo
+info "Reboot to start your new desktop environment:  reboot"
