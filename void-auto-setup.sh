@@ -4,7 +4,8 @@
 #
 # Run as root on a freshly installed Void Linux base system.
 # Covers: seat/session management, X11/Wayland desktop environments,
-# app launcher (rofi/wofi), Bluetooth, and PipeWire audio.
+# graphics drivers (Mesa/Vulkan/VA-API), app launcher (rofi/wofi),
+# Bluetooth, and PipeWire audio.
 #
 
 set -euo pipefail
@@ -116,6 +117,38 @@ setup_hyprland_repo() {
 
   msg "Syncing repositories — accept the hyprland-void fingerprint when prompted"
   xbps-install -S
+}
+
+# Enable the nonfree repository (proprietary drivers, firmware, Steam).
+enable_nonfree_repo() {
+  if xbps-query void-repo-nonfree >/dev/null 2>&1; then
+    info "nonfree repository already enabled."
+    return 0
+  fi
+  msg "Enabling the nonfree repository"
+  install_avail void-repo-nonfree
+  xbps-install -Sy
+}
+
+# Enable the 32-bit (multilib) repositories. Returns 1 when the platform
+# cannot support them (multilib is x86_64 + glibc only).
+MULTILIB_READY=0
+enable_multilib_repos() {
+  if [ "$MULTILIB_READY" -eq 1 ]; then
+    return 0
+  fi
+  if [ "$(uname -m)" != "x86_64" ]; then
+    warn "32-bit libraries require x86_64; skipping multilib."
+    return 1
+  fi
+  if ldd --version 2>&1 | grep -qi musl; then
+    warn "multilib is not available on musl systems; skipping 32-bit libraries."
+    return 1
+  fi
+  msg "Enabling the multilib repositories"
+  install_avail void-repo-multilib void-repo-multilib-nonfree
+  xbps-install -Sy
+  MULTILIB_READY=1
 }
 
 # Yes/no prompt. Returns 0 for yes, 1 for no.
@@ -387,7 +420,147 @@ if [ -n "$DM_SERVICE" ]; then
 fi
 
 # ----------------------------------------------------------------------------
-# 3. Application launcher (rofi for X11, wofi for Wayland)
+# 3. Graphics drivers (Mesa / Vulkan / VA-API)
+# ----------------------------------------------------------------------------
+msg "Graphics drivers"
+
+# lspci lives in pciutils, which a minimal base install may not have.
+if ! command -v lspci >/dev/null 2>&1; then
+  install_avail pciutils
+fi
+
+# Detect the GPU vendors present on this machine (best effort, used as a hint).
+DETECTED_GPUS=()
+detect_gpus() {
+  local line v
+  command -v lspci >/dev/null 2>&1 || return 0
+  while IFS= read -r line; do
+    v=""
+    case "${line,,}" in
+      *nvidia*)                          v="NVIDIA" ;;
+      *intel*)                           v="Intel" ;;
+      *amd*|*ati*|*radeon*)              v="AMD" ;;
+      *virtio*|*vmware*|*virtualbox*|*innotek*|*qxl*|*"red hat"*|*bochs*|*cirrus*)
+                                         v="Virtual" ;;
+    esac
+    [ -n "$v" ] || continue
+    # Avoid listing the same vendor twice (hybrid laptops report two devices).
+    case " ${DETECTED_GPUS[*]-} " in *" $v "*) continue ;; esac
+    DETECTED_GPUS+=("$v")
+  done < <(lspci 2>/dev/null | grep -Ei 'vga compatible controller|3d controller|display controller')
+}
+detect_gpus
+
+if ((${#DETECTED_GPUS[@]})); then
+  info "Detected GPU vendor(s): ${DETECTED_GPUS[*]}"
+else
+  warn "Could not detect a GPU automatically — pick your driver(s) manually."
+fi
+
+# Mesa, the Vulkan loader/ICD infrastructure and the video-acceleration
+# front-ends are needed by every GPU, including the proprietary NVIDIA stack.
+msg "Installing the common graphics stack (Mesa, Vulkan loader, VA-API/VDPAU)"
+install_avail mesa mesa-dri vulkan-loader Vulkan-Tools mesa-vulkan-lvp \
+  mesa-vaapi mesa-vdpau libva libva-utils vdpauinfo libvdpau
+if [ "$DISPLAY_SERVER" = "X11" ]; then
+  install_avail xf86-input-libinput
+else
+  install_avail libinput
+fi
+
+choose_multi "Which GPU driver(s) do you want to install?" \
+  "Intel (mesa-vulkan-intel + VA-API)" \
+  "AMD / ATI (mesa-vulkan-radeon + VA-API)" \
+  "NVIDIA — proprietary (nonfree repo, DKMS module)" \
+  "NVIDIA — open source (nouveau)" \
+  "Virtual machine guest (QEMU/virtio, VMware, VirtualBox)"
+
+GPU_VENDORS=()
+for c in "${CHOICES[@]}"; do
+  case "$c" in
+    "Intel"*)
+      GPU_VENDORS+=("intel")
+      install_avail mesa-vulkan-intel intel-video-accel
+      # Gen8+ uses intel-media-driver, older chips use libva-intel-driver.
+      install_avail intel-media-driver libva-intel-driver
+      install_avail linux-firmware-intel
+      if [ "$DISPLAY_SERVER" = "X11" ]; then
+        install_avail xf86-video-intel
+        info "The modesetting driver is preferred over xf86-video-intel on Gen4+;"
+        info "remove xf86-video-intel if you hit tearing or crashes."
+      fi
+      ;;
+    "AMD"*)
+      GPU_VENDORS+=("amd")
+      install_avail mesa-vulkan-radeon linux-firmware-amd
+      if [ "$DISPLAY_SERVER" = "X11" ]; then
+        # Pre-GCN cards (radeon kernel driver) still use the ati DDX.
+        install_avail xf86-video-amdgpu xf86-video-ati
+      fi
+      ;;
+    "NVIDIA — proprietary"*)
+      GPU_VENDORS+=("nvidia")
+      if enable_nonfree_repo; then
+        # The DKMS module needs headers for the running kernel.
+        install_avail linux-headers dkms
+        install_avail nvidia nvidia-firmware
+        install_avail nvidia-vaapi-driver
+        warn "The NVIDIA module is built with DKMS — this can take a few minutes."
+        warn "Reboot before starting a graphical session; nouveau is blacklisted"
+        warn "by the nvidia package, so the change only applies after reboot."
+        if [ "$DISPLAY_SERVER" != "X11" ]; then
+          warn "For Wayland, make sure nvidia_drm.modeset=1 is set (the Void package"
+          warn "ships this in /etc/modprobe.d — verify after reboot with:"
+          warn "  cat /sys/module/nvidia_drm/parameters/modeset)"
+        fi
+      fi
+      ;;
+    "NVIDIA — open source"*)
+      GPU_VENDORS+=("nouveau")
+      install_avail mesa-nouveau-dri mesa-vulkan-nouveau
+      if [ "$DISPLAY_SERVER" = "X11" ]; then
+        install_avail xf86-video-nouveau
+      fi
+      warn "nouveau has no reclocking on most modern cards — expect low performance."
+      ;;
+    "Virtual machine guest"*)
+      GPU_VENDORS+=("virtual")
+      # Guests fall back to the lavapipe software renderer already installed above.
+      if [ "$DISPLAY_SERVER" = "X11" ]; then
+        install_avail xf86-video-vmware xf86-video-qxl
+      fi
+      info "For VirtualBox also install 'virtualbox-ose-guest' and enable vboxservice."
+      ;;
+  esac
+done
+
+if ((${#GPU_VENDORS[@]})); then
+  SELECTED_GPU_SUMMARY="${CHOICES[*]}"
+else
+  SELECTED_GPU_SUMMARY="none (generic Mesa only)"
+  warn "No vendor driver selected — only the generic Mesa stack was installed."
+fi
+
+# 32-bit userspace: required by Steam, Wine and most Proton titles.
+if ask_yn "Install 32-bit graphics libraries too? (needed for Steam/Wine)" "n"; then
+  if enable_multilib_repos; then
+    install_avail mesa-dri-32bit vulkan-loader-32bit libgcc-32bit libstdc++-32bit
+    for v in "${GPU_VENDORS[@]}"; do
+      case "$v" in
+        intel)   install_avail mesa-vulkan-intel-32bit libva-intel-driver-32bit ;;
+        amd)     install_avail mesa-vulkan-radeon-32bit ;;
+        nvidia)  install_avail nvidia-libs-32bit ;;
+        nouveau) install_avail mesa-nouveau-dri-32bit ;;
+      esac
+    done
+    SELECTED_GPU_SUMMARY="${SELECTED_GPU_SUMMARY} + 32-bit libs"
+  fi
+fi
+
+info "Verify Vulkan after reboot with 'vulkaninfo --summary' and VA-API with 'vainfo'."
+
+# ----------------------------------------------------------------------------
+# 4. Application launcher (rofi for X11, wofi for Wayland)
 # ----------------------------------------------------------------------------
 if [ "$DISPLAY_SERVER" = "X11" ]; then
   msg "Installing and configuring rofi (X11 application launcher)"
@@ -445,7 +618,7 @@ WOFICSS
 fi
 
 # ----------------------------------------------------------------------------
-# 4. Application selection (tuxmate-style)
+# 5. Application selection (tuxmate-style)
 # ----------------------------------------------------------------------------
 msg "Application selection"
 info "Pick the applications you want. Every category can be skipped."
@@ -605,15 +778,18 @@ esac
 # --- Extras (yes/no) ---
 msg "Extras"
 if ask_yn "Install Steam? (enables the nonfree + multilib repos and 32-bit libraries)" "n"; then
-  if [ "$(uname -m)" != "x86_64" ]; then
-    warn "Steam requires x86_64; skipping."
-  elif ldd --version 2>&1 | grep -qi musl; then
+  if ldd --version 2>&1 | grep -qi musl; then
     warn "Steam is not available on musl systems; skipping."
-  else
-    install_avail void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree
-    msg "Re-syncing repositories after enabling multilib"
-    xbps-install -Sy
+  elif enable_nonfree_repo && enable_multilib_repos; then
     install_avail steam mesa-dri-32bit vulkan-loader-32bit libgcc-32bit libstdc++-32bit
+    for v in "${GPU_VENDORS[@]}"; do
+      case "$v" in
+        intel)   install_avail mesa-vulkan-intel-32bit ;;
+        amd)     install_avail mesa-vulkan-radeon-32bit ;;
+        nvidia)  install_avail nvidia-libs-32bit ;;
+        nouveau) install_avail mesa-nouveau-dri-32bit ;;
+      esac
+    done
     SELECTED_SUMMARY+=("Gaming: Steam + 32-bit libs")
   fi
 fi
@@ -631,7 +807,7 @@ if ask_yn "Install Thunderbird (email client)?" "n"; then
 fi
 
 # ----------------------------------------------------------------------------
-# 5. Bluetooth
+# 6. Bluetooth
 # ----------------------------------------------------------------------------
 msg "Bluetooth setup"
 install_pkgs bluez libspa-bluetooth
@@ -639,7 +815,7 @@ enable_service bluetoothd
 warn "Add your user to the 'bluetooth' group for device access:  usermod -aG bluetooth <username>"
 
 # ----------------------------------------------------------------------------
-# 6. PipeWire (per the official Void Linux documentation, system-wide config)
+# 7. PipeWire (per the official Void Linux documentation, system-wide config)
 # ----------------------------------------------------------------------------
 msg "PipeWire sound setup"
 
@@ -686,6 +862,7 @@ info "Summary:"
 info "  Seat manager:    ${SEAT_MANAGER}"
 info "  Display server:  ${DISPLAY_SERVER}"
 info "  Desktop:         ${DESKTOP_CHOICE}"
+info "  Graphics:        ${SELECTED_GPU_SUMMARY}"
 info "  Audio:           PipeWire + WirePlumber (system-wide config)"
 info "  Bluetooth:       bluez + libspa-bluetooth (bluetoothd enabled)"
 if ((${#SELECTED_SUMMARY[@]})); then
